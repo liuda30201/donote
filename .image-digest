@@ -1,0 +1,3 @@
+local-build: web-clipboard-local:1.6.8-p1 (image id 19ad86d57679)
+upstream-base: docker.1panel.live/aichenk/web-clipboard:1.6.8 (image id 4d832faebfea)
+nginx: docker.1panel.live/library/nginx:1.27-alpine

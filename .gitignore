@@ -1,0 +1,33 @@
+# ---- 敏感凭据：绝不提交 ----
+.env
+credentials.txt
+deploy.env
+*.secret
+*_credentials
+dns-credentials.ini
+dns-credentials.env
+.dns-credentials*
+
+# ---- TLS 私钥与证书 ----
+nginx/certs/*.pem
+nginx/certs/*.key
+nginx/certs/*.crt
+nginx/certs/*.csr
+nginx/certs/*.pfx
+nginx/certs/*.p12
+
+# ---- 用户数据（消息记录 + 附件）----
+data/
+backup/
+
+# ---- 运行时产物 ----
+nginx/www/acme/*
+!nginx/www/acme/.gitkeep
+*.log
+logs/
+
+# ---- 编辑器/系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>分享消息 - Web Clipboard</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="share-page">
+    <div class="share-card" id="share-card">
+      <div class="share-header">
+        <h1>📋 分享消息</h1>
+      </div>
+
+      <div id="share-loading" class="share-loading">
+        <div class="share-spinner"></div>
+        <p>加载中...</p>
+      </div>
+
+      <div id="share-error" class="share-error hidden">
+        <div class="share-error-icon">❌</div>
+        <p id="share-error-message">分享不存在或已过期</p>
+        <a href="/" class="btn btn-primary">返回首页</a>
+      </div>
+
+      <div id="share-password-section" class="share-password-section hidden">
+        <p class="share-password-hint">此分享需要密码访问</p>
+        <div class="share-password-form">
+          <input type="password" id="share-password-input" placeholder="请输入访问密码" autofocus>
+          <button id="share-password-submit" class="btn btn-primary">确认</button>
+        </div>
+        <p id="share-password-error" class="error-msg hidden">密码错误</p>
+      </div>
+
+      <div id="share-content" class="share-content hidden">
+        <div class="share-meta">
+          <span id="share-time"></span>
+          <span id="share-views"></span>
+        </div>
+        <div id="share-remark" class="share-remark-card hidden">
+          <span class="share-remark-title">📝 备注：</span><span id="share-remark-text" class="share-remark-text"></span>
+        </div>
+        <div id="share-message" class="share-message"></div>
+        <div id="share-deleted-notice" class="share-deleted-notice hidden">
+          <p>⚠️ 原消息已被删除</p>
+        </div>
+      </div>
+
+      <div class="share-footer">
+        <a href="/" class="share-home-link">Web Clipboard - 跨设备剪贴板</a>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <div id="image-viewer" class="image-viewer hidden">
+    <div class="image-viewer-backdrop"></div>
+    <div class="image-viewer-content">
+      <button class="image-viewer-close" title="关闭">×</button>
+      <img id="image-viewer-img" class="image-viewer-img" alt="大图">
+      <div class="image-viewer-actions">
+        <button id="image-viewer-original" class="btn btn-secondary hidden">查看原图</button>
+        <button id="image-viewer-copy" class="btn btn-secondary">复制图片</button>
+      </div>
+      <p class="image-viewer-hint">点击背景或按 ESC 关闭</p>
+    </div>
+  </div>
+
+  <div id="text-viewer" class="text-viewer modal hidden">
+    <div class="text-viewer-backdrop"></div>
+    <div class="text-viewer-container">
+      <div class="text-viewer-header">
+        <div class="text-viewer-title-info">
+          <h3 class="text-viewer-title">文本详情</h3>
+          <span id="text-viewer-meta" class="text-viewer-meta"></span>
+        </div>
+        <button id="text-viewer-close" class="text-viewer-close" title="关闭">×</button>
+      </div>
+      <div class="text-viewer-body">
+        <div id="text-viewer-content" class="text-viewer-content"></div>
+      </div>
+      <div class="text-viewer-actions">
+        <button id="text-viewer-copy-btn" class="btn btn-primary">复制全文</button>
+        <button id="text-viewer-close-btn" class="btn btn-secondary">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/share.js"></script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+# Web Clipboard
+
+[English](./README_EN.md) | 简体中文
+
+跨设备剪贴板同步工具，支持文字、图片和文件消息的实时同步。
+
+## 功能特性
+
+- 默认无密码开放访问，可选密码保护
+- **密码登录支持选择有效时长（10分钟～30天），到期后客户端自动清理凭证退登（v1.6.1+）**
+- **支持多用户模式，密码隔离数据（v1.4.0+）**
+- **支持 PWA（渐进式 Web 应用）离线资产缓存，可像原生 App 般直接“安装到主屏幕”（v1.6.0+）**
+- 聊天框式消息展示，支持滚动加载历史消息
+- WebSocket 实时同步，断线重连自动补齐消息
+- 文本消息发送与一键复制，**支持正则 Markdown 行内代码/多行代码块及超链接智能高亮渲染（v1.6.0+）**
+- 图片粘贴/上传，支持自适应缩略图与原图复制（动态请求）
+- 文件上传与下载，**支持音频与视频多媒体消息在页面内直接内联播放预览（v1.6.0+）**
+- **系统剪贴板深度集成：粘贴按钮双击可“直接粘贴并发送”，页面非聚焦状态直接快捷键粘贴自动聚焦载入（v1.6.0+）**
+- **消息分享功能，生成分享链接、设置密码和过期时间（v1.5.0+）**
+- **消息可设置备注功能，为每条文本、图片和文件消息添加备注说明，支持多端实时同步（v1.6.7+）**
+- 服务端消息持久化，重启服务数据不丢失
+- 消息删除与一键清空，同时清理关联文件
+- 自动过期清理，超时数据自动清除
+- 磁盘孤儿文件定时清理，自动删除空日期目录
+- **集成 API 请求速率限制（Rate Limiting）防御机制，支持密码防暴力破解保护（v1.5.9+）**
+- **安全加固：彻底阻断多用户模式越权（IDOR）与未授权文件上传/广播窃听风险（v1.5.9+）**
+
+## 快速开始
+
+### Docker 部署（推荐）
+
+```bash
+# 拉取镜像
+docker pull aichenk/web-clipboard:latest
+
+# 运行容器（默认无密码）
+docker run -d \
+  -p 3000:3000 \
+  -v web-clipboard-data:/app/data \
+  --name web-clipboard \
+  aichenk/web-clipboard:latest
+
+# 启用密码保护（单用户模式）
+docker run -d \
+  -p 3000:3000 \
+  -e ACCESS_PASSWORD=你的密码 \
+  -v web-clipboard-data:/app/data \
+  --name web-clipboard \
+  aichenk/web-clipboard:latest
+
+# 多用户模式（密码隔离数据）**v1.4.0+**
+docker run -d \
+  -p 3000:3000 \
+  -e ACCESS_PASSWORDS=user1:pass1,user2:pass2,user3:pass3 \
+  -v web-clipboard-data:/app/data \
+  --name web-clipboard \
+  aichenk/web-clipboard:latest
+```
+
+### Docker Compose
+
+```yaml
+version: "3"
+services:
+  web-clipboard:
+    image: aichenk/web-clipboard:latest
+    ports:
+      - "3000:3000"
+    environment:
+      # 单用户模式
+      - ACCESS_PASSWORD=你的密码
+      # 多用户模式 **v1.4.0+**（取消注释使用）
+      # - ACCESS_PASSWORDS=user1:pass1,user2:pass2,user3:pass3
+      # - MIGRATE_DEFAULT_USER=user1  # 迁移单用户数据到指定用户
+      - EXPIRE_HOURS=168
+      - FILE_CLEANUP_INTERVAL_MINUTES=30
+    restart: unless-stopped
+    volumes:
+      - web-clipboard-data:/app/data
+
+volumes:
+  web-clipboard-data:
+```
+
+### 本地运行
+
+```bash
+# 安装依赖
+npm install
+
+# 启动服务
+npm start
+```
+
+## 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PORT` | 服务端口 | `3000` |
+| `ACCESS_PASSWORD` | 单用户模式访问密码（留空则无密码模式） | 空（无密码） |
+| `ACCESS_PASSWORDS` | 多用户模式密码映射（格式：`userId:password,userId:password`）**v1.4.0+** | 空 |
+| `MIGRATE_DEFAULT_USER` | 迁移单用户数据到指定用户（仅多用户模式首次启动）**v1.4.0+** | 空 |
+| `EXPIRE_HOURS` | 数据过期时间（小时） | `168`（7天） |
+| `MESSAGE_PAGE_SIZE` | 分页加载每页数量 | `30` |
+| `SOCKET_SYNC_LIMIT` | Socket 首次同步数量 | `20` |
+| `STORAGE_ROOT` | 数据根目录 | `./data` |
+| `FILE_CLEANUP_INTERVAL_MINUTES` | 孤儿文件清理间隔（分钟） | `30` |
+| `SHARE_MAX_EXPIRE_HOURS` | 分享链接最大过期时间（小时）**v1.5.0+** | `168`（7天） |
+
+## 运行模式
+
+### 单用户模式
+
+使用 `ACCESS_PASSWORD` 环境变量设置密码。数据存储在 `data/messages.json` 和 `data/uploads/`。
+
+### 多用户模式 **v1.4.0+**
+
+使用 `ACCESS_PASSWORDS` 环境变量设置密码映射：
+
+```
+ACCESS_PASSWORDS=user1:pass1,user2:pass2,user3:pass3
+```
+
+每个用户的数据独立存储在：
+- `data/users/user1/messages.json`
+- `data/users/user1/uploads/`
+
+用户输入密码后，系统自动识别用户身份，数据完全隔离。
+
+### 从单用户迁移到多用户 **v1.4.0+**
+
+如果之前使用单用户模式，切换到多用户模式时：
+
+1. 设置 `MIGRATE_DEFAULT_USER` 指定迁移目标用户
+2. 系统会自动将 `data/messages.json` 和 `data/uploads/` 迁移到目标用户目录
+
+```bash
+docker run -d \
+  -p 3000:3000 \
+  -e ACCESS_PASSWORDS=user1:pass1,user2:pass2 \
+  -e MIGRATE_DEFAULT_USER=user1 \
+  -v web-clipboard-data:/app/data \
+  --name web-clipboard \
+  aichenk/web-clipboard:latest
+```
+
+如果不设置 `MIGRATE_DEFAULT_USER`，单用户数据会保留在磁盘但不会被读取。
+
+## 使用说明
+
+1. 打开网页（无密码模式直接进入，有密码则需输入）。
+2. 在输入框中输入文本，按 Enter 或点击「发送」。
+3. 点击「粘贴」按钮可将剪贴板文本粘贴到输入框。
+4. 点击「粘贴图片」按钮或直接在输入框粘贴剪贴板图片。
+5. 点击附件按钮 📎 可选择上传图片或文件。
+6. 图片消息支持「复制缩略图」与「复制原图」（动态从服务端获取）。
+7. 文件消息支持下载，点击「下载文件」即可。
+8. 悬停消息卡片显示操作按钮，可删除单条消息。
+9. 点击「分享」按钮可生成分享链接，支持设置过期时间和访问密码 **v1.5.0+**。
+10. 点击「我的分享」可查看、复制或取消已创建的分享 **v1.5.0+**。
+11. 点击「清空」可一键清除所有消息。
+12. 密码模式下点击「退出」可清除本地密码缓存并返回登录页。
+
+## 分享功能风险提示
+
+> **重要安全提醒**
+
+- **链接传播风险**：分享链接一旦生成，任何获得链接的人都可以访问分享内容。请谨慎分享，避免将链接发送给不信任的人。
+- **密码保护局限**：分享密码采用简单校验，未进行加密存储。请勿使用重要密码，建议设置独立的分享密码。
+- **消息依赖**：分享依赖原消息存在。原消息被删除后，分享链接将失效。
+- **无访问审计**：分享访问不会记录访问者身份，无法追溯谁访问了分享内容。
+- **内容转发风险**：分享内容可被复制、下载或截图转发，请勿分享敏感或机密信息。
+
+**建议**：
+- 仅分享非敏感内容
+- 设置较短的过期时间
+- 为重要分享设置密码
+- 定期在「我的分享」中清理不需要的分享
+
+## 更新日志
+
+> [查看完整更新日志](CHANGELOG.md)
+
+## 技术栈
+
+- 后端：Node.js + Express + Socket.io
+- 前端：原生 HTML/CSS/JavaScript
+- 实时通信：WebSocket
+
+## License
+
+MIT

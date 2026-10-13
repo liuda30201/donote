@@ -1,0 +1,560 @@
+const shareLoading = document.getElementById('share-loading');
+const shareError = document.getElementById('share-error');
+const shareErrorMessage = document.getElementById('share-error-message');
+const sharePasswordSection = document.getElementById('share-password-section');
+const sharePasswordInput = document.getElementById('share-password-input');
+const sharePasswordSubmit = document.getElementById('share-password-submit');
+const sharePasswordError = document.getElementById('share-password-error');
+const shareContent = document.getElementById('share-content');
+const shareTime = document.getElementById('share-time');
+const shareViews = document.getElementById('share-views');
+const shareMessage = document.getElementById('share-message');
+const shareDeletedNotice = document.getElementById('share-deleted-notice');
+const shareRemark = document.getElementById('share-remark');
+const shareRemarkText = document.getElementById('share-remark-text');
+const toastEl = document.getElementById('toast');
+
+let shareId = null;
+let verifiedPassword = null;
+
+function showToast(message) {
+  toastEl.textContent = message;
+  toastEl.classList.remove('hidden');
+  setTimeout(() => {
+    toastEl.classList.add('hidden');
+  }, 3000);
+}
+
+function formatTime(timestamp) {
+  const date = new Date(timestamp);
+  return date.toLocaleString('zh-CN');
+}
+
+function formatFileSize(size) {
+  if (!Number.isFinite(size) || size <= 0) return '0 B';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function getImageContent(content) {
+  if (typeof content === 'string') {
+    return { thumbnail: content, hasOriginal: false };
+  }
+  if (content && typeof content === 'object') {
+    const thumbnail = typeof content.thumbnail === 'string' ? content.thumbnail : '';
+    const original = typeof content.original === 'string' ? content.original : '';
+    const hasOriginal = typeof content.hasOriginal === 'boolean'
+      ? content.hasOriginal
+      : Boolean(original && original !== thumbnail);
+    return { thumbnail: thumbnail || original, original, hasOriginal };
+  }
+  return { thumbnail: '', hasOriginal: false };
+}
+
+function escapeHTML(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function renderSmartText(text) {
+  if (!text) return '';
+
+  const placeholders = [];
+  let html = escapeHTML(text);
+
+  // 1. 提取 ``` 多行代码块并占位
+  html = html.replace(/```(\w*)\n([\s\S]*?)\n?```/g, (match, lang, code) => {
+    const placeholder = `___CODE_BLOCK_PLACEHOLDER_${placeholders.length}___`;
+    placeholders.push({
+      placeholder,
+      content: `<pre class="code-block"><code>${code}</code></pre>`
+    });
+    return placeholder;
+  });
+
+  // 2. 提取 ` 行内代码并占位
+  html = html.replace(/`([^`\n]+)`/g, (match, code) => {
+    const placeholder = `___INLINE_CODE_PLACEHOLDER_${placeholders.length}___`;
+    placeholders.push({
+      placeholder,
+      content: `<code class="inline-code">${code}</code>`
+    });
+    return placeholder;
+  });
+
+  // 3. 智能渲染 URL 链接
+  const urlRegex = /(\bhttps?:\/\/[^\s<]+[^.,?\s<])/gi;
+  html = html.replace(urlRegex, (url) => {
+    return `<a href="${url}" target="_blank" rel="noopener" class="message-link">${url}</a>`;
+  });
+
+  // 4. 将剩余文本换行符替换为 <br>
+  html = html.replace(/\n/g, '<br>');
+
+  // 5. 还原代码块
+  for (const item of placeholders) {
+    html = html.replace(item.placeholder, item.content);
+  }
+
+  return html;
+}
+
+function getFileContent(content) {
+  if (!content || typeof content !== 'object') {
+    return { name: '未知文件', size: 0, mimeType: '', url: '' };
+  }
+  return {
+    name: typeof content.name === 'string' ? content.name : '未知文件',
+    size: Number.isFinite(content.size) ? content.size : 0,
+    mimeType: typeof content.mimeType === 'string' ? content.mimeType : '',
+    url: typeof content.url === 'string' ? content.url : ''
+  };
+}
+
+function renderMessage(msg) {
+  shareMessage.innerHTML = '';
+
+  if (msg.remark && shareRemark && shareRemarkText) {
+    shareRemarkText.textContent = msg.remark;
+    shareRemark.classList.remove('hidden');
+  } else if (shareRemark) {
+    shareRemark.classList.add('hidden');
+  }
+
+  if (msg.type === 'text') {
+    const textEl = document.createElement('div');
+    textEl.className = 'share-text-content';
+    textEl.innerHTML = renderSmartText(msg.content);
+
+    const lines = (msg.content || '').split('\n').length;
+    const isLongByContent = lines > 8 || (msg.content && msg.content.length > 300);
+
+    if (isLongByContent) {
+      textEl.classList.add('is-collapsed');
+      textEl.title = '点击查看完整内容';
+      textEl.addEventListener('click', (e) => {
+        if (e.target.tagName.toLowerCase() === 'a') return;
+        openTextViewer(msg);
+      });
+    }
+
+    shareMessage.appendChild(textEl);
+
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'share-actions-row';
+
+    if (isLongByContent) {
+      const viewBtn = document.createElement('button');
+      viewBtn.className = 'btn btn-secondary';
+      viewBtn.textContent = '查看全文';
+      viewBtn.addEventListener('click', () => openTextViewer(msg));
+      actionsRow.appendChild(viewBtn);
+    }
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = isLongByContent ? 'btn btn-primary' : 'btn btn-primary share-action-btn';
+    copyBtn.textContent = '复制文本';
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(msg.content);
+        showToast('已复制到剪贴板');
+      } catch {
+        showToast('复制失败');
+      }
+    });
+
+    if (isLongByContent) {
+      actionsRow.appendChild(copyBtn);
+      shareMessage.appendChild(actionsRow);
+    } else {
+      shareMessage.appendChild(copyBtn);
+    }
+  } else if (msg.type === 'image') {
+    const imageData = getImageContent(msg.content);
+    const imgContainer = document.createElement('div');
+    imgContainer.className = 'share-image-container';
+
+    const img = document.createElement('img');
+    img.className = 'share-image';
+    img.src = imageData.thumbnail;
+    img.alt = '分享图片';
+
+    img.addEventListener('click', () => {
+      openImageViewer(imageData);
+    });
+
+    imgContainer.appendChild(img);
+    shareMessage.appendChild(imgContainer);
+
+    const hint = document.createElement('p');
+    hint.className = 'share-image-hint';
+    hint.textContent = '点击图片查看大图';
+    shareMessage.appendChild(hint);
+  } else if (msg.type === 'file') {
+    const fileData = getFileContent(msg.content);
+    const fileEl = document.createElement('div');
+    fileEl.className = 'share-file-content';
+
+    const fileName = document.createElement('div');
+    fileName.className = 'share-file-name';
+    fileName.textContent = fileData.name;
+
+    const fileMeta = document.createElement('div');
+    fileMeta.className = 'share-file-meta';
+    fileMeta.textContent = `${formatFileSize(fileData.size)}${fileData.mimeType ? ` · ${fileData.mimeType}` : ''}`;
+
+    fileEl.appendChild(fileName);
+    fileEl.appendChild(fileMeta);
+    shareMessage.appendChild(fileEl);
+
+    const downloadBtn = document.createElement('button');
+    downloadBtn.className = 'btn btn-primary share-action-btn';
+    downloadBtn.textContent = '下载文件';
+    downloadBtn.addEventListener('click', () => {
+      window.open(fileData.url, '_blank', 'noopener');
+    });
+    shareMessage.appendChild(downloadBtn);
+  }
+}
+
+function showError(message) {
+  shareLoading.classList.add('hidden');
+  sharePasswordSection.classList.add('hidden');
+  shareContent.classList.add('hidden');
+  shareErrorMessage.textContent = message;
+  shareError.classList.remove('hidden');
+}
+
+async function loadShare() {
+  const pathParts = window.location.pathname.split('/');
+  shareId = pathParts[pathParts.length - 1];
+
+  if (!shareId) {
+    showError('分享链接无效');
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/share/${shareId}`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      showError(data.error || '分享不存在或已过期');
+      return;
+    }
+
+    // 需要密码
+    if (data.hasPassword) {
+      shareLoading.classList.add('hidden');
+      sharePasswordSection.classList.remove('hidden');
+      sharePasswordInput.focus();
+      return;
+    }
+
+    // 无需密码，直接加载内容
+    await loadShareContent();
+  } catch (error) {
+    console.error(error);
+    showError('加载分享失败');
+  }
+}
+
+async function loadShareContent() {
+  try {
+    // 构建请求 URL，如果有密码则在查询参数中传递
+    let url = `/api/share/${shareId}/content`;
+    if (verifiedPassword) {
+      url += `?password=${encodeURIComponent(verifiedPassword)}`;
+    }
+
+    const response = await fetch(url);
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      showError(data.error || '获取分享内容失败');
+      return;
+    }
+
+    shareLoading.classList.add('hidden');
+    sharePasswordSection.classList.add('hidden');
+
+    // 显示元信息
+    const expiresDate = new Date(data.share.expiresAt);
+    shareTime.textContent = `过期时间: ${expiresDate.toLocaleString('zh-CN')}`;
+    shareViews.textContent = `访问次数: ${data.share.viewCount}`;
+
+    // 原消息已删除
+    if (data.deleted || !data.message) {
+      shareContent.classList.remove('hidden');
+      shareDeletedNotice.classList.remove('hidden');
+      return;
+    }
+
+    // 渲染消息
+    shareContent.classList.remove('hidden');
+    renderMessage(data.message);
+  } catch (error) {
+    console.error(error);
+    showError('获取分享内容失败');
+  }
+}
+
+async function verifyPassword() {
+  const password = sharePasswordInput.value.trim();
+  if (!password) {
+    showToast('请输入密码');
+    return;
+  }
+
+  try {
+    sharePasswordSubmit.disabled = true;
+    sharePasswordSubmit.textContent = '验证中...';
+
+    const response = await fetch(`/api/share/${shareId}/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      sharePasswordError.textContent = data.error || '密码错误';
+      sharePasswordError.classList.remove('hidden');
+      sharePasswordInput.value = '';
+      sharePasswordInput.focus();
+      return;
+    }
+
+    verifiedPassword = password;
+    sharePasswordError.classList.add('hidden');
+    await loadShareContent();
+  } catch (error) {
+    console.error(error);
+    showToast('验证失败');
+  } finally {
+    sharePasswordSubmit.disabled = false;
+    sharePasswordSubmit.textContent = '确认';
+  }
+}
+
+sharePasswordSubmit.addEventListener('click', verifyPassword);
+sharePasswordInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    verifyPassword();
+  }
+});
+
+// 初始化
+loadShare();
+
+// ========== 图片查看器 ==========
+const imageViewer = document.getElementById('image-viewer');
+const imageViewerImg = document.getElementById('image-viewer-img');
+const imageViewerOriginalBtn = document.getElementById('image-viewer-original');
+const imageViewerCopyBtn = document.getElementById('image-viewer-copy');
+const imageViewerBackdrop = imageViewer.querySelector('.image-viewer-backdrop');
+const imageViewerCloseBtn = imageViewer.querySelector('.image-viewer-close');
+
+let currentViewerImageData = null;
+let isViewingOriginal = false;
+
+function openImageViewer(imageData) {
+  currentViewerImageData = imageData;
+  isViewingOriginal = false;
+
+  // 显示缩略图
+  imageViewerImg.src = imageData.thumbnail;
+
+  // 分享页面通常只有缩略图，不显示原图按钮
+  imageViewerOriginalBtn.classList.add('hidden');
+
+  imageViewer.classList.remove('hidden');
+}
+
+function closeImageViewer() {
+  imageViewer.classList.add('hidden');
+  imageViewerImg.src = '';
+  currentViewerImageData = null;
+  isViewingOriginal = false;
+}
+
+function dataURLtoBlobSync(dataUrl) {
+  try {
+    const parts = dataUrl.split(',');
+    if (parts.length !== 2) return null;
+    const match = parts[0].match(/:(.*?);/);
+    const mime = match ? match[1] : 'image/png';
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  } catch (e) {
+    console.error('dataURLtoBlobSync 失败:', e);
+    return null;
+  }
+}
+
+function convertImageSourceToPngBlob(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context not available'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Canvas toBlob failed'));
+          }
+        }, 'image/png');
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = src;
+  });
+}
+
+async function writePngToClipboard(blobOrPromise) {
+  if (typeof ClipboardItem === 'undefined' || !navigator.clipboard || !navigator.clipboard.write) {
+    throw new Error('浏览器不支持剪贴板图片写入');
+  }
+
+  try {
+    const item = new ClipboardItem({ 'image/png': blobOrPromise });
+    await navigator.clipboard.write([item]);
+    return true;
+  } catch (firstErr) {
+    if (blobOrPromise instanceof Promise) {
+      const resolvedBlob = await blobOrPromise;
+      const item = new ClipboardItem({ 'image/png': resolvedBlob });
+      await navigator.clipboard.write([item]);
+      return true;
+    }
+    throw firstErr;
+  }
+}
+
+async function copyViewerImage() {
+  const src = imageViewerImg.src;
+  if (!src) {
+    showToast('没有可复制的图片');
+    return;
+  }
+
+  try {
+    if (typeof src === 'string' && src.startsWith('data:image/png;base64,')) {
+      const syncBlob = dataURLtoBlobSync(src);
+      if (syncBlob) {
+        await writePngToClipboard(syncBlob);
+        showToast('图片已复制到剪贴板');
+        return;
+      }
+    }
+
+    const blobPromise = (async () => {
+      return await convertImageSourceToPngBlob(src);
+    })();
+
+    await writePngToClipboard(blobPromise);
+    showToast('图片已复制到剪贴板');
+  } catch (error) {
+    console.error('复制图片失败:', error);
+    if (typeof ClipboardItem === 'undefined' || !navigator.clipboard || !navigator.clipboard.write) {
+      showToast('浏览器不支持复制图片');
+    } else {
+      showToast('复制图片失败');
+    }
+  }
+}
+
+imageViewerBackdrop.addEventListener('click', closeImageViewer);
+imageViewerCloseBtn.addEventListener('click', closeImageViewer);
+imageViewerCopyBtn.addEventListener('click', copyViewerImage);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (imageViewer && !imageViewer.classList.contains('hidden')) {
+      closeImageViewer();
+    }
+    if (textViewer && !textViewer.classList.contains('hidden')) {
+      closeTextViewer();
+    }
+  }
+});
+
+// ========== 文本查看器 ==========
+const textViewer = document.getElementById('text-viewer');
+const textViewerContent = document.getElementById('text-viewer-content');
+const textViewerMeta = document.getElementById('text-viewer-meta');
+const textViewerClose = document.getElementById('text-viewer-close');
+const textViewerCloseBtn = document.getElementById('text-viewer-close-btn');
+const textViewerCopyBtn = document.getElementById('text-viewer-copy-btn');
+const textViewerBackdrop = textViewer ? textViewer.querySelector('.text-viewer-backdrop') : null;
+
+let currentViewerTextMsg = null;
+
+function openTextViewer(msg) {
+  if (!textViewer || !textViewerContent) return;
+  currentViewerTextMsg = msg;
+
+  const content = msg.content || '';
+  const lines = content.split('\n').length;
+  const chars = content.length;
+
+  if (textViewerMeta) {
+    textViewerMeta.textContent = `${lines} 行 · ${chars} 字`;
+  }
+
+  textViewerContent.innerHTML = renderSmartText(content);
+  textViewer.classList.remove('hidden');
+}
+
+function closeTextViewer() {
+  if (!textViewer) return;
+  textViewer.classList.add('hidden');
+  if (textViewerContent) {
+    textViewerContent.innerHTML = '';
+  }
+  currentViewerTextMsg = null;
+}
+
+async function copyViewerText() {
+  if (!currentViewerTextMsg || !currentViewerTextMsg.content) {
+    showToast('没有可复制的内容');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(currentViewerTextMsg.content);
+    showToast('已复制到剪贴板');
+  } catch {
+    showToast('复制失败');
+  }
+}
+
+if (textViewerBackdrop) textViewerBackdrop.addEventListener('click', closeTextViewer);
+if (textViewerClose) textViewerClose.addEventListener('click', closeTextViewer);
+if (textViewerCloseBtn) textViewerCloseBtn.addEventListener('click', closeTextViewer);
+if (textViewerCopyBtn) textViewerCopyBtn.addEventListener('click', copyViewerText);
