@@ -2,11 +2,8 @@
 # =============================================================================
 # web-clipboard —— 生成长期自签证书（默认 10 年）
 #
-# 为什么用自签：
-#   公网 80/443 不可用 ⇒ 公共 CA 只能用 DNS-01，需要 DNSPod API 凭据；
-#   本服务不对外开放、无公开域名备案，且全部内容都在登录保护之后，
-#   因此不申请公共 CA 证书。自签证书同样提供完整的 TLS 加密，
-#   唯一区别是浏览器首次访问会提示“证书不受信任”，点一次“继续前往”即可。
+# 适用于首次启动或内网测试；正式域名证书请使用 deploy-certs.sh。
+# 此脚本会覆盖 fullchain.pem / privkey.pem，不要在正式证书部署后随意重跑。
 #
 # 生成内容（写入 nginx/certs/）：
 #   fullchain.pem  证书（644）
@@ -21,23 +18,30 @@
 # =============================================================================
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 CERT_DIR="${PROJECT_DIR}/nginx/certs"
 DAYS="${DAYS:-3650}"
-DOMAIN="xm.7705.work"
-
-log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
-die() { printf '错误: %s\n' "$*" >&2; exit 1; }
+DOMAIN="node.7705.work"
 
 command -v openssl >/dev/null 2>&1 || die "未安装 openssl"
 
 mkdir -p "${CERT_DIR}"
 
 # 收集本机可用的 IP，一并写进 SAN，避免用 IP 直接访问时名称不匹配
+# IPv6 只取全局地址；IPv4 取内网/全局地址（排除回环与 169.254 链路本地）。
+# 注意：公网 IPv6 前缀变化后必须重跑本脚本，否则用 IP 访问会名称不匹配。
 SAN="DNS:${DOMAIN},DNS:localhost,IP:127.0.0.1,IP:::1"
-while read -r ip; do
-  [ -n "${ip}" ] && SAN="${SAN},IP:${ip}"
-done < <(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -v '^fe80')
+if ! command -v ip >/dev/null 2>&1; then
+  log "警告: 未找到 ip 命令，SAN 中不会包含本机额外 IP（仅 ${DOMAIN} / localhost / 127.0.0.1 / ::1）"
+else
+  while read -r ip; do
+    [ -n "${ip}" ] && SAN="${SAN},IP:${ip}"
+  done < <(ip -o -6 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -v '^fe80')
+  while read -r ip; do
+    [ -n "${ip}" ] && SAN="${SAN},IP:${ip}"
+  done < <(ip -o -4 addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1 \
+             | grep -vE '^127\.' | grep -vE '^169\.254\.')
+fi
 
 log "有效期: ${DAYS} 天"
 log "SAN: ${SAN}"

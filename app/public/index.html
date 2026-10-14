@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Web Clipboard - 跨设备剪贴板</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="style.css?v=1.7.5">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="apple-touch-icon" href="/favicon.svg">
+  <script>
+    (function() {
+      try {
+        var hasPass = localStorage.getItem('web-clipboard-password');
+        var exp = localStorage.getItem('web-clipboard-login-expires');
+        if (hasPass && (!exp || Date.now() < parseInt(exp, 10))) {
+          document.documentElement.classList.add('preload-auth');
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+
+<body>
+  <div class="container">
+    <!-- 未登录态：全屏居中认证页 -->
+    <div id="auth-section" class="section auth-screen">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="auth-logo" aria-hidden="true">📋</div>
+          <h1>Web Clipboard</h1>
+          <p class="subtitle">私有跨设备剪贴板工作台</p>
+        </div>
+        <div class="auth-form">
+          <h2>请输入访问密码</h2>
+          <div class="password-field-wrapper">
+            <input type="password" id="password-input" placeholder="输入访问密码" autocomplete="current-password" autofocus>
+            <button type="button" id="toggle-password-btn" class="password-toggle-btn" title="显示/隐藏密码" aria-label="显示或隐藏密码">👁️</button>
+          </div>
+          <div class="login-duration-container">
+            <label class="checkbox-label">
+              <input type="checkbox" id="limit-duration-chk"> 限制登录时间
+            </label>
+            <select id="login-duration-select" class="login-duration-select" disabled>
+              <option value="10m">10 分钟</option>
+              <option value="30m">30 分钟</option>
+              <option value="1h">1 小时</option>
+              <option value="6h">6 小时</option>
+              <option value="12h">12 小时</option>
+              <option value="24h">24 小时</option>
+              <option value="3d">3 天</option>
+              <option value="7d">7 天</option>
+              <option value="30d">30 天</option>
+            </select>
+          </div>
+          <button id="auth-btn" class="btn btn-primary" type="button">进入工作台</button>
+          <p id="auth-error" class="error-msg hidden">密码错误，请重试</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 登录态：现代全屏工作台 (Top Bar + Workspace + Composer Dock) -->
+    <div id="chat-section" class="section hidden">
+      <header class="app-topbar">
+        <div class="topbar-brand">
+          <span class="brand-logo" aria-hidden="true">📋</span>
+          <div class="brand-text">
+            <h1>Web Clipboard</h1>
+            <span id="version" class="version-badge"></span>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="内容视图切换">
+          <button class="tab active" data-tab="messages" type="button">消息</button>
+          <button class="tab" data-tab="favorites" type="button">收藏 <span id="favorites-badge" class="tab-badge hidden">0</span></button>
+          <button class="tab" data-tab="shares" type="button">共享 <span id="shares-badge" class="tab-badge hidden">0</span></button>
+        </div>
+
+        <!-- 顶部搜索框：单行居中嵌入顶栏，不占用下方内容展示区域 -->
+        <div class="topbar-search-wrapper">
+          <input id="toolbar-search" class="topbar-search" type="search" autocomplete="off" placeholder="搜索剪贴板（文字 / 备注）...">
+          <button id="toolbar-clear" class="topbar-search-clear hidden" type="button" title="清空搜索">×</button>
+          <span id="toolbar-status" class="toolbar-status"></span>
+        </div>
+
+        <div class="status-bar">
+          <div class="status-bar-left">
+            <span id="current-user" class="status user-info hidden"></span>
+            <span id="connection-status" class="status connected">已连接</span>
+            <span id="expire-info" class="status-meta"></span>
+            <span id="message-count" class="status-meta">0 条消息</span>
+          </div>
+          <div class="status-bar-right">
+            <!-- 方案 A：顶栏直观卡片大小缩放微型滑块 -->
+            <div class="card-size-controller" title="调节瀑布流卡片大小与列数">
+              <span class="card-size-icon" aria-hidden="true">▫</span>
+              <input type="range" id="card-size-slider" min="200" max="650" step="10" value="300" aria-label="卡片列宽">
+              <span class="card-size-icon" aria-hidden="true">◻</span>
+            </div>
+            <button id="clear-all" class="btn btn-small btn-danger" type="button" title="清空未收藏消息">清空</button>
+            <button id="layout-toggle" class="btn btn-small btn-secondary btn-icon" type="button" title="切换瀑布流 / 列表视图" aria-label="切换瀑布流或列表视图">⊞</button>
+            <button id="theme-toggle" class="btn btn-small btn-secondary btn-icon" type="button" title="切换深色 / 浅色模式" aria-label="切换深浅色主题">🌙</button>
+            <button id="logout-btn" class="btn btn-small btn-secondary" type="button">退出</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="tab-panel active" data-panel="messages">
+        <div class="chat-container">
+          <button id="load-older-btn" class="load-older-btn hidden" type="button">↑ 加载更早历史消息</button>
+          <div id="messages-list" class="messages-list"></div>
+
+          <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" type="button" title="滚动到最新消息">
+            <span class="scroll-bottom-icon">↓</span>
+            <span id="scroll-bottom-text">回到底部</span>
+          </button>
+
+          <!-- 极简单行输入坞：仅文本与直接 Ctrl+V 截图 -->
+          <div class="input-area" id="composer-area">
+            <div class="composer-shell">
+              <div class="input-row">
+                <textarea id="text-input" placeholder="输入或 Ctrl+V 直接粘贴剪贴内容/截图 (Enter 发送，Shift+Enter 换行)..." rows="1"></textarea>
+                <button id="send-text" class="btn btn-primary" type="button">发送</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-panel="favorites">
+        <div class="chat-container favorites-container">
+          <div id="favorites-list" class="messages-list"></div>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-panel="shares">
+        <div class="chat-container favorites-container">
+          <div id="shares-list" class="messages-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 class="modal-title">确认操作</h3>
+      <p id="modal-message">确定要清空所有消息吗？</p>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn btn-secondary" type="button">取消</button>
+        <button id="modal-confirm" class="btn btn-danger" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="image-compress-modal" class="modal hidden">
+    <div class="modal-content image-compress-modal-content">
+      <h3 class="modal-title">图片较大提示</h3>
+      <p id="image-compress-message" class="image-compress-message">检测到当前图片较大，建议压缩后上传以大幅提升传输速度并节省带宽。</p>
+      <div class="image-compress-actions">
+        <button id="image-compress-btn" class="btn btn-primary" type="button">压缩上传 (推荐)</button>
+        <button id="image-original-btn" class="btn btn-secondary" type="button">上传原图</button>
+        <button id="image-cancel-btn" class="btn btn-secondary" type="button">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="remark-modal" class="modal hidden">
+    <div class="modal-content remark-modal-content">
+      <h3 class="modal-title">设置消息备注</h3>
+      <p id="remark-modal-preview" class="remark-modal-preview"></p>
+      <div class="remark-form">
+        <textarea id="remark-input" class="remark-textarea" maxlength="500" placeholder="输入备注信息（如用途、说明、账号等，Ctrl+Enter 快速保存）..." rows="4"></textarea>
+        <div class="remark-counter-row">
+          <span id="remark-char-count" class="remark-char-count">0 / 500</span>
+        </div>
+        <div class="remark-actions">
+          <button id="remark-cancel-btn" class="btn btn-secondary" type="button">取消</button>
+          <button id="remark-clear-btn" class="btn btn-danger hidden" type="button">清除备注</button>
+          <button id="remark-save-btn" class="btn btn-primary" type="button">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="image-viewer" class="image-viewer hidden" role="dialog" aria-modal="true" aria-label="图片预览">
+    <div class="image-viewer-backdrop"></div>
+    <div class="image-viewer-content">
+      <button class="image-viewer-close" title="关闭" type="button">×</button>
+      <img id="image-viewer-img" class="image-viewer-img" alt="大图">
+      <div class="image-viewer-actions">
+        <button id="image-viewer-original" class="btn btn-secondary hidden" type="button">查看原图</button>
+        <button id="image-viewer-copy" class="btn btn-secondary" type="button">复制图片</button>
+      </div>
+      <p class="image-viewer-hint">点击背景或按 ESC 关闭</p>
+    </div>
+  </div>
+
+  <div id="text-viewer" class="text-viewer modal hidden">
+    <div class="text-viewer-backdrop"></div>
+    <div class="text-viewer-container">
+      <div class="text-viewer-header">
+        <div class="text-viewer-title-info">
+          <h3 class="text-viewer-title">文本详情</h3>
+          <span id="text-viewer-meta" class="text-viewer-meta"></span>
+        </div>
+        <button id="text-viewer-close" class="text-viewer-close" title="关闭" type="button">×</button>
+      </div>
+      <div class="text-viewer-body">
+        <div id="text-viewer-content" class="text-viewer-content"></div>
+      </div>
+      <div class="text-viewer-actions">
+        <button id="text-viewer-copy-btn" class="btn btn-primary" type="button">复制全文</button>
+        <button id="text-viewer-close-btn" class="btn btn-secondary" type="button">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="highlight.js?v=1.7.4"></script>
+  <script src="app.js?v=1.7.4"></script>
+</body>
+
+</html>

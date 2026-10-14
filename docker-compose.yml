@@ -1,13 +1,14 @@
 # web-clipboard —— 私有跨设备剪贴板
-# 架构: 浏览器 --https://xm.7705.work:8443--> nginx(TLS) --http--> app(仅内部网络)
-# 应用端口不对外暴露；只有 nginx 绑定宿主机的 8443 (IPv6 + IPv4)
+# 架构: 浏览器 --https://node.7705.work--> nginx(TLS) --http--> app(仅内部网络)
+# 应用端口不对外暴露；nginx 绑定宿主机 443 (HTTPS 入口) 与 80 (仅 ACME 验证 + 跳转)
+# 80 端口上除 /.well-known/acme-challenge/ 外一律 301 到 https，明文不承载任何数据。
 services:
   app:
     build:
-      context: ./build
+      context: ./app
       dockerfile: Dockerfile
-    image: web-clipboard-local:1.6.9-p2   # 本地构建（aiChenK/web-clipboard v1.6.8 + 本地安全补丁 p2：卡片式布局/搜索/文件预览）
-    # 回滚：把上面一行改回 web-clipboard-local:1.6.8-p1，然后 docker compose up -d app
+    image: web-clipboard-local:1.6.9-p7   # 本地构建（防闪屏秒开 + 共享Tab + 顶栏卡片缩放微型滑块）
+    # 回滚：把上面一行改回 web-clipboard-local:1.6.9-p6，然后 docker compose up -d --no-build app
     container_name: wcb-app
     restart: unless-stopped
     environment:
@@ -36,23 +37,25 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   nginx:
-    image: docker.1panel.live/library/nginx:1.27-alpine
+    image: nginx:1.27-alpine
     container_name: wcb-nginx
     restart: unless-stopped
     depends_on:
       app:
         condition: service_healthy
     ports:
-      - "[::]:8443:8443"
-      - "0.0.0.0:8443:8443"
+      - "[::]:443:443"
+      - "0.0.0.0:443:443"
+      - "[::]:80:80"
+      - "0.0.0.0:80:80"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/certs:/etc/nginx/certs:ro
-      - ./nginx/www:/var/www/acme:ro
+      - ./nginx/www/acme:/var/www/acme:ro   # 必须与 deploy-certs.sh 的 WEBROOT_DIR 一致
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "--no-check-certificate", "--header=Host: xm.7705.work", "https://127.0.0.1:8443/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "-", "--no-check-certificate", "--header=Host: node.7705.work", "https://127.0.0.1:443/healthz"]
       interval: 30s
       timeout: 5s
       retries: 5

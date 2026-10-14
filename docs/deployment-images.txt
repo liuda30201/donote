@@ -1,0 +1,6 @@
+# 历史部署镜像记录（不是当前运行状态，也不是锁定配置）
+# 应用镜像以 docker-compose.yml 为准；运行状态请用 docker compose images 查看。
+local-build: web-clipboard-local:1.6.9-p2 (image id b2720e558be0)
+upstream-base: docker.1panel.live/aichenk/web-clipboard:1.6.8 (image id 4d832faebfea)
+nginx: nginx:1.27-alpine (官方 Docker Hub；原 docker.1panel.live 镜像源已 403 不可用)
+node-base: node:18-alpine (官方 Docker Hub；同上)

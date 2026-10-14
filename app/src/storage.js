@@ -11,7 +11,6 @@ const singleUserState = {
   messages: [],
   lastActivity: Date.now()
 };
-let persistScheduled = false;
 let persistRunning = false;
 
 // 获取用户数据路径
@@ -97,35 +96,70 @@ function normalizePersistedState(state) {
 }
 
 // 加载持久化状态
+//
+// 区分三种情况，绝不把「读坏了」和「本来就没有」混为一谈：
+//   ENOENT   -> 首次启动，用空数据，正常
+//   解析失败 -> 数据文件损坏。此时**不能**把内存置为空数组：
+//               内存一空，紧接着任意一次写操作（新增/删除/清理）都会把
+//               损坏文件覆盖成 []，用户全部历史彻底消失且不可恢复。
+//               这里的做法是先把损坏文件改名备份（不删除），再以空数据继续，
+//               保证现场可查、可手工修复。
+//   其他 IO 错误 -> 保守处理：不改动内存状态，避免把已有数据写没。
 async function loadPersistedState(userId = null) {
   const dataFile = getDataFile(userId);
 
+  let raw;
   try {
-    const raw = await fs.readFile(dataFile, 'utf8');
-    const parsed = JSON.parse(raw);
-    const normalized = normalizePersistedState(parsed);
-
-    if (!MULTI_USER_MODE) {
-      singleUserState.messages = normalized.messages;
-      singleUserState.lastActivity = normalized.lastActivity;
-    } else {
-      const state = getUserState(userId);
-      state.messages = normalized.messages;
-      state.lastActivity = normalized.lastActivity;
-    }
-
-    console.log(`已加载持久化数据: ${normalized.messages.length} 条, 用户: ${userId || '单用户'}, 文件: ${dataFile}`);
+    raw = await fs.readFile(dataFile, 'utf8');
   } catch (error) {
     if (error && error.code === 'ENOENT') {
       console.log(`未找到持久化文件，使用空数据启动: ${dataFile}`);
-      return;
+      return { status: 'missing', messages: 0 };
     }
-    console.error('读取持久化数据失败，使用空数据启动:', error);
+    console.error(`读取持久化数据失败（保留内存现状，不做清空）: ${dataFile}`, error);
+    return { status: 'error', messages: 0 };
+  }
+
+  let normalized;
+  try {
+    normalized = normalizePersistedState(JSON.parse(raw));
+  } catch (error) {
+    const corruptPath = `${dataFile}.corrupt-${Date.now()}`;
+    let backedUp = false;
+    try {
+      await fs.rename(dataFile, corruptPath);
+      backedUp = true;
+    } catch (renameError) {
+      console.error(`损坏数据文件备份失败: ${dataFile}`, renameError);
+    }
+    console.error(
+      `持久化数据文件损坏，已${backedUp ? `备份为 ${corruptPath}` : '备份失败'}，` +
+      `本次以空数据启动（原文件${backedUp ? '未被覆盖' : '仍保留在原处'}）: ${dataFile}`,
+      error
+    );
+
     if (!MULTI_USER_MODE) {
       singleUserState.messages = [];
       singleUserState.lastActivity = Date.now();
+    } else {
+      const state = getUserState(userId);
+      state.messages = [];
+      state.lastActivity = Date.now();
     }
+    return { status: 'corrupt', messages: 0, backup: backedUp ? corruptPath : null };
   }
+
+  if (!MULTI_USER_MODE) {
+    singleUserState.messages = normalized.messages;
+    singleUserState.lastActivity = normalized.lastActivity;
+  } else {
+    const state = getUserState(userId);
+    state.messages = normalized.messages;
+    state.lastActivity = normalized.lastActivity;
+  }
+
+  console.log(`已加载持久化数据: ${normalized.messages.length} 条, 用户: ${userId || '单用户'}, 文件: ${dataFile}`);
+  return { status: 'ok', messages: normalized.messages.length };
 }
 
 // 持久化状态
@@ -196,31 +230,48 @@ async function migrateLegacyData(targetUserId) {
 }
 
 // 调度持久化
+//
+// 两个关键点：
+//  1) 待写集合按 userId 记录，不再用一个全局布尔值。原先的写法在定时器起来后用
+//     `for (const [uid] of userStates)` 写「当前已知的全部用户」，既会把与本次变更
+//     无关的用户也重写一遍，又依赖遍历顺序，语义不清晰。
+//  2) 单用户模式用 null 作为 key，且显式以“是否有待写任务”为准，不再假设 null 就是单用户。
+const pendingPersist = new Set();
+
 function schedulePersist(userId = null) {
-  persistScheduled = true;
+  pendingPersist.add(userId);
   if (persistRunning) return;
 
   setImmediate(async () => {
-    if (!persistScheduled || persistRunning) return;
-    persistScheduled = false;
+    if (pendingPersist.size === 0 || persistRunning) return;
     persistRunning = true;
 
     try {
-      if (MULTI_USER_MODE) {
-        for (const [uid] of userStates) {
-          await persistState(uid);
-        }
-      } else {
-        await persistState(null);
+      // 先快照再清空：写入期间新产生的变更会重新进入 pending，由finally 里的
+      // 二次调度负责，不会丢。
+      const targets = [...pendingPersist];
+      pendingPersist.clear();
+
+      for (const uid of targets) {
+        await persistState(uid).catch((error) => {
+          // 单个用户写失败不影响其余用户，但必须把该用户放回待写集合重试，
+          // 否则这次失败会被静默吞掉、直到下一次变更才可能落盘。
+          pendingPersist.add(uid);
+          console.error(`持久化失败 (用户 ${uid || '单用户'}):`, error);
+        });
       }
-    } catch (error) {
-      console.error('持久化消息失败:', error);
     } finally {
       persistRunning = false;
-      if (persistScheduled) schedulePersist(userId);
+      if (pendingPersist.size > 0) schedulePersist(pendingPersist.values().next().value);
     }
   });
 }
+
+// 检查是否存在待写任务（供优雅退出时 flush 使用）
+function hasPendingPersist() {
+  return pendingPersist.size > 0 || persistRunning;
+}
+
 
 // 获取消息分页
 function getMessagesPage({ before, limit, userId = null }) {
@@ -246,16 +297,19 @@ function searchMessages({ q, type, from, to, before, limit, userId = null }) {
   const state = getUserState(userId);
   const pageLimit = clampPageSize(limit);
   const keyword = String(q || '').trim().toLowerCase();
-  if (!keyword) {
+  const typeFilter = ['text', 'image', 'file'].includes(type) ? type : null;
+  const hasTimeFilter = Number.isFinite(from) || Number.isFinite(to);
+
+  if (!keyword && !typeFilter && !hasTimeFilter) {
     return { messages: [], hasMore: false, total: 0 };
   }
-
-  const typeFilter = ['text', 'image', 'file'].includes(type) ? type : null;
 
   const matched = state.messages.filter((item) => {
     if (typeFilter && item.type !== typeFilter) return false;
     if (Number.isFinite(from) && item.timestamp < from) return false;
     if (Number.isFinite(to) && item.timestamp >= to) return false;
+
+    if (!keyword) return true;
 
     const haystacks = [];
     if (item.type === 'text') {
@@ -306,6 +360,7 @@ module.exports = {
   persistState,
   migrateLegacyData,
   schedulePersist,
+  hasPendingPersist,
 
   // 分页函数
   getMessagesPage,

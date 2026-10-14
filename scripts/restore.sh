@@ -8,7 +8,7 @@
 #
 # 行为：
 #   1. 恢复前以容器 root 把“当前 data/”整体打包成回滚点
-#      data.rollback-<时间戳>.tar.gz（普通用户 wt 无法直接复制 root 属主的附件）
+#      data.rollback-<时间戳>.tar.gz（普通宿主机用户无法直接复制 root 属主的附件）
 #   2. 停止 app 容器（nginx 保持运行，仅短暂 502）
 #   3. 清空并解包归档到 data/
 #   4. 重新启动 app 并等待健康检查通过
@@ -18,14 +18,9 @@
 # =============================================================================
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 DATA_DIR="${PROJECT_DIR}/data"
 cd "${PROJECT_DIR}"
-
-IMAGE="${IMAGE:-web-clipboard-local:1.6.8-p1}"
-
-log() { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
-die() { printf '错误: %s\n' "$*" >&2; exit 1; }
 
 ARCHIVE="${1:-}"
 
@@ -51,13 +46,29 @@ ARCHIVE_DIR="$(dirname "${ARCHIVE}")"
 ARCHIVE_BASE="$(basename "${ARCHIVE}")"
 tar -tzf "${ARCHIVE}" >/dev/null || die "备份文件损坏，无法读取: ${ARCHIVE}"
 
+# ---- 归档结构校验：必须至少含 messages.json 或 uploads/，且所有成员都在 data/ 之内 ----
+# 这一步必须在下面 root 权限的 rm -rf 之前完成：
+# 归档里若含绝对路径或 ../ 逃逸成员，解包会写到 /data 之外。
+MEMBER_COUNT="$(tar -tzf "${ARCHIVE}" | wc -l)"
+[ "${MEMBER_COUNT}" -gt 0 ] || die "备份文件是空归档: ${ARCHIVE}"
+tar -tzf "${ARCHIVE}" | grep -qE '(^|/)messages\.json$|^uploads/' \
+  || die "备份文件不含 messages.json 或 uploads/，不是预期结构的归档: ${ARCHIVE}"
+BAD_MEMBERS="$(tar -tzf "${ARCHIVE}" | grep -E '^/|(^|/)\.\.(/|$)' || true)"
+[ -z "${BAD_MEMBERS}" ] || {
+  printf '%s\n' "${BAD_MEMBERS}" | head -5 >&2
+  die "备份文件含逃逸路径（绝对路径或 ..），已拒绝解包"
+}
+
+IMAGE="$(resolve_image)"
 docker image inspect "${IMAGE}" >/dev/null 2>&1 || die "镜像不存在: ${IMAGE}"
 
 log "备份内容预览（前 10 项）："
 tar -tzf "${ARCHIVE}" | head -10
 
 printf '\n确认从该备份恢复？将覆盖 %s 下的全部数据。输入 yes 继续: ' "${DATA_DIR}"
-read -r ANSWER
+# 非交互 stdin（cron / 管道 / </dev/null）下 read 返回非 0，这里按“取消”处理，
+# 避免 set -e 直接退出时给出误导性的错误信息。
+read -r ANSWER || ANSWER=""
 [ "${ANSWER}" = "yes" ] || die "已取消"
 
 # ---- 1. 建立回滚点（容器 root 打包，普通用户无法读取 root 属主附件）----
@@ -68,7 +79,7 @@ docker run --rm \
   "${IMAGE}" sh -c "tar czf '/out/${ROLLBACK_NAME}' -C /data ." 2>/dev/null || true
 if [ -f "${PROJECT_DIR}/${ROLLBACK_NAME}" ]; then
   docker run --rm -v "${PROJECT_DIR}:/out" "${IMAGE}" sh -c \
-    "chown 1000:1000 '/out/${ROLLBACK_NAME}'" 2>/dev/null || true
+    "chown $(id -u):$(id -g) '/out/${ROLLBACK_NAME}'" 2>/dev/null || true
   log "已保存回滚点: ${PROJECT_DIR}/${ROLLBACK_NAME}"
 else
   log "警告: 回滚点创建失败（原 data 可能为空）"
@@ -80,6 +91,7 @@ docker compose stop app >/dev/null
 
 # ---- 3. 清空并解包 ----
 log "解包备份到 ${DATA_DIR}"
+# 归档结构与逃逸路径已在上面校验过；这里再让 tar 自身拒绝绝对路径/.. 成员作为第二道闸
 docker run --rm \
   -v "${DATA_DIR}:/data" \
   -v "${ARCHIVE_DIR}:/in:ro" \
@@ -87,7 +99,7 @@ docker run --rm \
     set -e
     rm -rf /data/* /data/.[!.]* 2>/dev/null || true
     mkdir -p /data
-    tar xzf '/in/${ARCHIVE_BASE}' -C /data
+    tar xzf '/in/${ARCHIVE_BASE}' -C /data --no-same-owner --warning=no-unknown-keyword
     ls /data
   "
 

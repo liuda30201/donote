@@ -1,9 +1,0 @@
-node_modules/
-.env
-data/
-build.sh
-AGENTS.md
-.claude/
-skills/
-CLAUDE.md
-.gitnexus

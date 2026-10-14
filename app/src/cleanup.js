@@ -7,7 +7,14 @@ const { toPosixPath } = require('./utils');
 const { cleanupExpiredShares, deleteSharesByMessageId } = require('./share');
 const { socketHelper } = require('./socket');
 
-let cleanupRunning = false;
+// 注：过期数据清理与孤儿文件清理各自用自己的互斥手段 —— 前者是同步内存操作，
+// 重复执行只是白跑一遍；后者是慢速 IO 且会在多用户模式下被循环调用，用按 userId
+// 的单飞表（见 cleanupOrphanDiskFiles）。这里不再保留历史遗留的全局布尔量。
+//
+// 关于定时任务的压栈风险：cleanupAllUsersExpiredData / cleanupAllUsersOrphanFiles
+// 由 setInterval 直接调度。内存操作为主时它们远快于 5 分钟间隔，不会堆积；
+// 若将来某个用户的目录异常庞大（上万文件），单次遍历可能超过间隔并造成多轮并发，
+// 届时再补做「整轮清理」的单飞，当前规模无需引入这层复杂度。
 
 // 清理过期数据
 async function cleanupExpiredData(userId = null) {
@@ -39,14 +46,26 @@ async function cleanupExpiredData(userId = null) {
   }
 
   // 清理关联分享
-  await Promise.allSettled(expiredMessages.map((msg) => deleteSharesByMessageId(msg.id, userId))).catch((error) => {
-    console.error('清理过期分享失败:', error);
-  });
+  // 注意：Promise.allSettled 永远不会 reject，挂 .catch 是死代码（真实错误藏在
+  // 每个 settled 结果的 reason 里）。这里改为按结果逐条打印，错误不再被吞掉。
+  const shareResults = await Promise.allSettled(
+    expiredMessages.map((msg) => deleteSharesByMessageId(msg.id, userId))
+  );
+  for (const result of shareResults) {
+    if (result.status === 'rejected') {
+      console.error('清理过期分享失败:', result.reason);
+    }
+  }
 
   // 清理过期文件
-  Promise.allSettled(expiredMessages.map((msg) => deleteMessageFiles(msg, userId))).catch((error) => {
-    console.error('清理过期文件失败:', error);
-  });
+  const fileResults = await Promise.allSettled(
+    expiredMessages.map((msg) => deleteMessageFiles(msg, userId))
+  );
+  for (const result of fileResults) {
+    if (result.status === 'rejected') {
+      console.error('清理过期文件失败:', result.reason);
+    }
+  }
 }
 
 // 清理所有用户过期数据
@@ -131,11 +150,21 @@ async function removeEmptyDirsRecursive(dirPath, isRoot = true) {
 }
 
 // 清理孤儿磁盘文件
-async function cleanupOrphanDiskFiles(userId = null) {
-  if (cleanupRunning) return;
-  cleanupRunning = true;
+//
+// 单飞（single-flight）语义：
+//   原来的 `if (cleanupRunning) return;` 配一个模块级布尔量，在多用户模式下会漏掉
+//   绝大部分用户 —— 定时任务循环调用 cleanupOrphanDiskFiles(uid) 时，只有第一个
+//   用户真正执行，其余用户因为标志位还是 true 直接 return，孤儿文件永远清不掉。
+//   而且「正在清理」和「已跳过」对调用方无法区分。
+// 现在：并发请求同一个 userId 时复用同一个 Promise；不同 userId 各自独立执行。
+const orphanCleanupInflight = new Map();
 
-  try {
+async function cleanupOrphanDiskFiles(userId = null) {
+  const key = userId || '\u0000single';
+  const running = orphanCleanupInflight.get(key);
+  if (running) return running;
+
+  const task = (async () => {
     const uploadRoot = getUploadRoot(userId);
     const state = getUserState(userId);
 
@@ -164,11 +193,16 @@ async function cleanupOrphanDiskFiles(userId = null) {
     if (removedCount > 0) {
       console.log(`孤儿文件清理完成，用户 ${userId || '单用户'} 删除 ${removedCount} 个文件`);
     }
-  } catch (error) {
-    console.error('孤儿文件清理失败:', error);
-  } finally {
-    cleanupRunning = false;
-  }
+    return removedCount;
+  })().catch((error) => {
+    console.error(`孤儿文件清理失败 (用户 ${userId || '单用户'}):`, error);
+    return 0;
+  }).finally(() => {
+    orphanCleanupInflight.delete(key);
+  });
+
+  orphanCleanupInflight.set(key, task);
+  return task;
 }
 
 // 清理所有用户孤儿文件

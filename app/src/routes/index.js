@@ -1,8 +1,5 @@
 const path = require('path');
 const express = require('express');
-const fs = require('fs/promises');
-const { MULTI_USER_MODE, UPLOAD_ROOT, STORAGE_ROOT } = require('../config');
-const { getUserUploadRoot } = require('../storage');
 const authRoutes = require('./auth');
 const messagesRoutes = require('./messages');
 const favoritesRoutes = require('./favorites');
@@ -15,11 +12,11 @@ function setupUploadRoutes(app) {
   app.use('/uploads', (req, res) => {
     res.status(404).json({ error: 'Not Found' });
   });
-  if (MULTI_USER_MODE) {
-    app.use('/uploads/:userId', (req, res) => {
-      res.status(404).json({ error: 'Not Found' });
-    });
-  }
+}
+
+// 所有 API 路由之后统一返回 JSON 404，便于前端解析错误。
+function apiNotFound(req, res) {
+  res.status(404).json({ error: 'Not Found', path: req.originalUrl });
 }
 
 // 设置 API 路由
@@ -41,6 +38,9 @@ function setupApiRoutes(app) {
   app.use('/api/share', (req, res) => {
     res.status(404).json({ error: 'Not Found' });
   });
+
+  // 必须放在最后
+  app.use('/api', apiNotFound);
 }
 
 // 设置所有路由

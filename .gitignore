@@ -8,6 +8,8 @@ dns-credentials.ini
 dns-credentials.env
 .dns-credentials*
 
+acme-email.txt
+
 # ---- TLS 私钥与证书 ----
 nginx/certs/*.pem
 nginx/certs/*.key
@@ -19,6 +21,7 @@ nginx/certs/*.p12
 # ---- 用户数据（消息记录 + 附件）----
 data/
 backup/
+data.rollback-*.tar.gz
 
 # ---- 运行时产物 ----
 nginx/www/acme/*
@@ -31,3 +34,9 @@ logs/
 .idea/
 .DS_Store
 Thumbs.db
+
+# ---- Node.js 开发产物 ----
+node_modules/
+app/data/
+npm-debug.log*
+coverage/

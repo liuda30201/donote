@@ -1,15 +1,17 @@
 {
   "name": "web-clipboard",
   "version": "1.6.8",
-  "description": "",
-  "main": "index.js",
+  "description": "跨设备私有网页剪贴板，支持文本、图片、文件与实时同步",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "check": "node ../scripts/check-js.js",
+    "test": "node --test test/*.test.js"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "express": "^5.2.1",

@@ -36,8 +36,17 @@ function toDateFolder(timestamp = Date.now()) {
 }
 
 // 创建消息 ID
+//
+// 为什么不用 Math.random()：
+//   1) V8 的 Math.random 是可预测的 xorshift128+，攻击者拿到几个 ID 就能推算后续值；
+//      ID 在本项目里直接出现在 URL 中（/api/messages/:id/...），且是删除消息的唯一凭据；
+//   2) Math.random().toString(36).slice(2, 7) 只有 5 个 base36 字符 ≈ 30 bit，生日碰撞
+//      在几十万条量级就会实际发生，不同消息撞 ID 会导致互相覆盖/误删。
+// 这里改用 crypto.randomUUID()（Node 14.17+ 内置，122 bit 随机），时间戳前缀保留，
+// 便于按创建时间粗略排序与人工排查。
 function createMessageId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const { randomUUID } = require('crypto');
+  return `${Date.now().toString(36)}-${randomUUID()}`;
 }
 
 // 解码文件名（处理 multipart 上传时的编码问题）

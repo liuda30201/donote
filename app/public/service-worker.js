@@ -1,11 +1,13 @@
-const CACHE_NAME = 'web-clipboard-v1.6.9';
+const CACHE_NAME = 'web-clipboard-v1.7.5';
+// 注意：不要在这里放 /share.html、/share.js。
+// 分享功能在应用层与 nginx 层都已整体禁用（固定返回 404），把这两个路径写进
+// 预缓存列表会让 cache.addAll() 整体失败（它要求每个请求都 2xx），
+// 结果是 install 事件 reject，**整个 Service Worker 装不上**、离线能力全废。
 const ASSETS = [
   '/',
   '/index.html',
-  '/share.html',
   '/style.css',
   '/app.js',
-  '/share.js',
   '/highlight.js',
   '/heic2any.min.js',
   '/favicon.svg',
@@ -38,7 +40,7 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// 拦截 fetch 请求并应用 Stale-While-Revalidate 缓存策略
+// 拦截 fetch 请求
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
@@ -51,10 +53,26 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
+  // HTML 页面与根导航：网络优先（Network-First），确保服务端发布新版后用户刷新立即可见；离线时降级到本地缓存
+  if (e.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+    e.respondWith(
+      fetch(e.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, responseClone));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // 静态资产（带版本号的 CSS / JS / 图标等）：缓存优先，后台静默更新
   e.respondWith(
     caches.match(e.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // 静态资产：缓存优先返回，同时后台默默 fetch 更新最新版本缓存
         fetch(e.request).then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse));

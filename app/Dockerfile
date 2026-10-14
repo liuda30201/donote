@@ -1,11 +1,13 @@
-FROM docker.1panel.live/library/node:18-alpine
+FROM node:18-alpine
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --production
+RUN npm ci --omit=dev
 
-COPY . .
+COPY server.js ./
+COPY src ./src
+COPY public ./public
 
 EXPOSE 3000
 

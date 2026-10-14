@@ -40,10 +40,11 @@ router.post('/auth', authLimiter, (req, res) => {
 // 认证状态 API
 router.get('/auth/status', (req, res) => {
   if (MULTI_USER_MODE) {
+    // 该接口在 nginx 侧免登录放行，因此绝不能返回用户 ID 列表（用户枚举）。
+    // 只暴露“是否需要密码”这一必要信息。
     res.json({
       mode: 'multi',
-      requirePassword: true,
-      users: Array.from(userPasswordMap.values())
+      requirePassword: true
     });
   } else {
     res.json({

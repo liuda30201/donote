@@ -1,6 +1,13 @@
 const { toUploadUrl, decodeDataUrl, normalizeImageIncomingContent, extensionFromMime, isDataUrl, sanitizeFilename } = require('./utils');
 const { writeBinaryToUpload } = require('./upload');
 
+function toImageFileUrl(messageId, userId = null) {
+  const params = new URLSearchParams();
+  if (userId) params.set('userId', userId);
+  const query = params.toString();
+  return `/api/messages/${encodeURIComponent(messageId)}/image-file${query ? `?${query}` : ''}`;
+}
+
 // 转换为公开消息格式
 function toPublicMessage(message, userId = null) {
   const result = {
@@ -13,7 +20,8 @@ function toPublicMessage(message, userId = null) {
     const content = message.content;
 
     if (content && typeof content === 'object' && typeof content.thumbnailPath === 'string') {
-      const thumbnailUrl = toUploadUrl(content.thumbnailPath, userId);
+      // /uploads/ 只为旧数据兼容而保留且已被 Nginx 禁止；图片必须走带认证的流式接口。
+      const thumbnailUrl = toImageFileUrl(message.id, userId);
       result.content = {
         thumbnail: thumbnailUrl,
         hasOriginal: Boolean(content.hasOriginal),
