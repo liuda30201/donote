@@ -193,6 +193,9 @@ let userId = null; // 多用户模式下的用户 ID
 let currentMode = 'pending'; // 服务端确认前禁止凭据请求
 let accountChallenge = null;
 let accountStage = 'login';
+let registrationChallenge = null;
+let registrationMode = false;
+let registrationAvailable = false;
 let accountCsrfToken = null;
 let accountEpoch = 0;
 let accountAbortController = null;
@@ -2261,6 +2264,7 @@ function checkAuth() {
       authBtn.disabled = false;
       requirePassword = data.requirePassword;
       if (currentMode === 'accounts') {
+        registrationAvailable = data.registration === true;
         configureAccountLogin();
         sessionFetch('/api/auth/me', accountRequestOptions({ credentials: 'same-origin', cache: 'no-store' })).then(async response => {
           if (!response.ok) throw new Error('login required');
@@ -2298,6 +2302,22 @@ function checkAuth() {
     });
 }
 
+function setRegistrationMode(enabled) {
+  registrationMode = Boolean(enabled);
+  document.getElementById('registration-fields')?.classList.toggle('hidden', !registrationMode);
+  document.getElementById('registration-toggle')?.classList.toggle('hidden', !registrationAvailable);
+  document.getElementById('registration-toggle').textContent = registrationMode ? '返回登录' : '创建账户';
+  authBtn.textContent = registrationMode ? (registrationChallenge ? '确认邮箱并创建账户' : '发送验证码') : '进入工作台';
+  document.getElementById('account-options')?.classList.toggle('hidden', registrationMode || currentMode !== 'accounts');
+  document.getElementById('account-factor-fields')?.classList.add('hidden');
+  if (!registrationMode) {
+    registrationChallenge = null;
+    document.getElementById('registration-code-fields')?.classList.add('hidden');
+    document.getElementById('registration-code').value = '';
+  } else {
+    document.getElementById('registration-code-fields')?.classList.toggle('hidden', !registrationChallenge);
+  }
+}
 function configureAccountLogin() {
   securityOpen?.classList.remove('hidden');
   if (accountUser?.role === 'admin') adminOpen?.classList.remove('hidden');
@@ -2305,9 +2325,11 @@ function configureAccountLogin() {
   if (label) label.classList.remove('hidden'); if (input) input.classList.remove('hidden');
   const passwordLabel = document.querySelector('label[for="password-input"]'); if (passwordLabel) passwordLabel.textContent = '密码';
   document.getElementById('account-options')?.classList.remove('hidden');
+  document.getElementById('registration-toggle')?.classList.toggle('hidden', !registrationAvailable);
   document.getElementById('account-reset-btn')?.classList.remove('hidden');
   document.querySelector('.login-duration-container')?.classList.add('hidden');
   for (const key of ['web-clipboard-password', 'web-clipboard-user-id', 'web-clipboard-login-expires', 'web-clipboard-cached-messages', 'web-clipboard-cached-favorites']) localStorage.removeItem(key);
+  setRegistrationMode(false);
   clearProxyAuthCookie();
 }
 let enrollmentPending = false;
@@ -2801,6 +2823,12 @@ function resetAccountLogin(preserveSelfSecurityOp = false) {
   if (preserveSelfSecurityOp !== true) cancelSelfSecurityDelivery();
   clearEnrollment(); enrollmentPending = false;
   accountEpoch += 1; accountStage = 'login'; accountChallenge = null;
+  setRegistrationMode(false);
+  for (const id of ['username-input', 'password-input', 'registration-email', 'registration-display-name', 'registration-code']) document.getElementById(id).disabled = false;
+  for (const id of ['registration-email', 'registration-display-name', 'registration-code']) document.getElementById(id).value = '';
+  passwordInput.autocomplete = 'current-password';
+  passwordInput.placeholder = '输入密码';
+  authBtn.disabled = false;
   verificationField('account-code-label').textContent = '动态验证码'; verificationField('account-code-label').classList.remove('hidden'); verificationField('account-code').classList.remove('hidden'); verificationField('account-code').required = true; verificationField('account-code').placeholder = '六位动态验证码'; verificationField('account-new-password').classList.remove('hidden'); document.querySelector('label[for="account-new-password"]').classList.remove('hidden');
   for (const id of ['account-code', 'account-new-password', 'account-recovery-code']) { const el = document.getElementById(id); if (el) el.value = ''; }
   for (const id of ['account-setup-secret', 'account-recovery-result']) { const el = document.getElementById(id); if (el) el.textContent = ''; }
@@ -3037,7 +3065,68 @@ document.getElementById('security-history-details-btn')?.addEventListener('click
 document.getElementById('security-revoke-others')?.addEventListener('click', () => beginSecurityAction('session.revoke-others'));
 document.getElementById('security-revoke-all')?.addEventListener('click', () => beginSecurityAction('session.revoke-all'));
 
+document.getElementById('registration-code').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && registrationMode) { event.preventDefault(); registerAccount(); }
+});
+document.getElementById('registration-toggle').addEventListener('click', () => {
+  const enabled = !registrationMode;
+  resetAccountLogin();
+  setRegistrationMode(enabled);
+  passwordInput.autocomplete = enabled ? 'new-password' : 'current-password';
+  passwordInput.placeholder = enabled ? '至少 12 个字符' : '输入密码';
+});
+for (const id of ['username-input', 'password-input', 'registration-email', 'registration-display-name']) {
+  document.getElementById(id).addEventListener('input', () => {
+    if (!registrationMode) return;
+    registrationChallenge = null;
+    setRegistrationMode(true);
+  });
+}
+async function registerAccount() {
+  const epoch = accountEpoch;
+  if (authBtn.disabled) return;
+  const username = document.getElementById('username-input').value.trim();
+  const email = document.getElementById('registration-email');
+  if (!registrationChallenge && (!email.value.trim() || !email.reportValidity())) return;
+  const body = registrationChallenge
+    ? { challenge: registrationChallenge, code: document.getElementById('registration-code').value.trim() }
+    : { username, password: passwordInput.value, email: email.value.trim(), displayName: document.getElementById('registration-display-name').value.trim() || username };
+  authBtn.disabled = true;
+  const fields = ['username-input', 'password-input', 'registration-email', 'registration-display-name', 'registration-code'].map(id => document.getElementById(id));
+  fields.forEach(field => { field.disabled = true; });
+  try {
+    const response = await sessionFetch(`/api/auth/register/${registrationChallenge ? 'confirm' : 'start'}`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (epoch !== accountEpoch) return;
+    if (!response.ok) {
+      const errors = { PASSWORD_POLICY: '密码至少需要 12 个字符，最多 1024 字节', INVALID_REGISTRATION: '用户名需为 3–64 位字母、数字、点、下划线或短横线', INVALID_EMAIL: '请输入有效邮箱', MAIL_UNAVAILABLE: '邮件服务暂不可用，请稍后重试', REGISTRATION_RATE_LIMIT: '发送过于频繁，请至少一分钟后重试', AUTH_RATE_LIMIT: '请求过于频繁，请稍后重试', AUTH_BUSY: '服务繁忙，请稍后重试', AUTH_FAILED: '验证码无效或已过期，请返回登录后重新注册' };
+      throw new Error(errors[data.code] || '注册未完成，请稍后重试');
+    }
+    if (!registrationChallenge) {
+      registrationChallenge = data.challenge;
+      passwordInput.value = '';
+      setRegistrationMode(true);
+      document.getElementById('registration-email-hint').textContent = `验证码已发送至 ${data.emailHint}，5 分钟内有效。`;
+      document.getElementById('registration-code').focus();
+      authError.classList.add('hidden');
+    } else {
+      resetAccountLogin();
+      const result = document.getElementById('account-recovery-result');
+      result.textContent = '邮箱验证完成。若账户信息可用，账户已创建，请使用用户名和密码登录；无法登录时请更换用户名或邮箱重试。';
+      result.classList.remove('hidden');
+    }
+  } catch (error) {
+    if (epoch === accountEpoch && error.name !== 'AbortError') { authError.textContent = error.message; authError.classList.remove('hidden'); }
+  } finally {
+    if (epoch === accountEpoch) {
+      authBtn.disabled = false;
+      fields.forEach(field => { field.disabled = false; });
+      if (registrationChallenge) document.getElementById('registration-code').focus();
+    }
+  }
+}
 async function verifyAccount() {
+  if (registrationMode) return registerAccount();
   cancelSelfSecurityDelivery();
   const epoch = accountEpoch;
   const username = document.getElementById('username-input')?.value.trim(); const password = passwordInput?.value || '';

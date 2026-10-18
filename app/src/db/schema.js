@@ -145,5 +145,29 @@ const EMAIL_MIGRATION = {
     ) STRICT;
   `
 };
-const ACCOUNT_MIGRATIONS = [SECURITY_MIGRATION, EMAIL_MIGRATION];
-module.exports = { SECURITY_MIGRATION, EMAIL_MIGRATION, ACCOUNT_MIGRATIONS };
+const REGISTRATION_MIGRATION = {
+  version: 3,
+  name: 'public-email-registration-challenges',
+  sql: `
+    CREATE TABLE registration_challenges (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      username TEXT NOT NULL COLLATE NOCASE,
+      display_name TEXT NOT NULL,
+      email TEXT NOT NULL COLLATE NOCASE,
+      source_hash TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0,1)),
+      consumed_at INTEGER
+    ) STRICT;
+    CREATE INDEX registration_challenges_active ON registration_challenges(token_hash, expires_at, consumed_at);
+    CREATE INDEX registration_challenges_email ON registration_challenges(email, created_at);
+    CREATE INDEX registration_challenges_source ON registration_challenges(source_hash, created_at);
+  `
+};
+const ACCOUNT_MIGRATIONS = [SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION];
+module.exports = { SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION, ACCOUNT_MIGRATIONS };

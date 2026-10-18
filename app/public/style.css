@@ -412,9 +412,11 @@ a:focus-visible,
 }
 
 .auth-form > input:not([type="checkbox"]),
+#account-options select,
 .auth-form select,
 #account-factor-fields input,
-#account-options input:not([type="checkbox"]) {
+#account-options input:not([type="checkbox"]),
+#registration-fields input:not([type="checkbox"]) {
   width: 100%;
   min-height: 40px;
   box-sizing: border-box;
@@ -429,7 +431,9 @@ a:focus-visible,
 
 .auth-form > input:not([type="checkbox"]):focus,
 #account-factor-fields input:focus,
-#account-options input:not([type="checkbox"]):focus {
+#account-options input:not([type="checkbox"]):focus,
+#account-options select:focus,
+#registration-fields input:not([type="checkbox"]):focus {
   outline: none;
   background: var(--bg-surface);
   border-color: var(--accent);
@@ -438,7 +442,8 @@ a:focus-visible,
 
 .auth-form > input::placeholder,
 #account-factor-fields input::placeholder,
-#account-options input::placeholder { color: var(--text-muted); }
+#account-options input::placeholder,
+#registration-fields input::placeholder { color: var(--text-muted); }
 
 .auth-label {
   display: block;
@@ -542,15 +547,19 @@ a:focus-visible,
 }
 
 #account-factor-fields,
-#account-options {
-  display: flex;
+#account-options,
+#registration-fields {
   flex-direction: column;
   gap: var(--space-2);
   padding-top: var(--space-2);
 }
+#account-factor-fields:not(.hidden),
+#account-options:not(.hidden),
+#registration-fields:not(.hidden) { display: flex; }
 
 #account-factor-fields .auth-label,
-#account-options .auth-label { margin-bottom: 0; }
+#account-options .auth-label,
+#registration-fields .auth-label { margin-bottom: 0; }
 
 #account-options .checkbox-label {
   align-items: flex-start;
@@ -560,7 +569,9 @@ a:focus-visible,
 }
 
 #account-options .checkbox-label input { margin-top: 3px; flex-shrink: 0; }
+#registration-toggle { width: 100%; font-size: 0.9rem; }
 #account-options .btn, #account-reset-btn { font-size: 0.82rem; }
+.registration-note,
 #account-recovery-result, #account-setup-secret {
   font-size: 0.82rem;
   line-height: 1.6;
