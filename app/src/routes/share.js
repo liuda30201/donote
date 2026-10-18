@@ -2,6 +2,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { createShare, getShareInfo, verifySharePassword, getShareContent, deleteShare, getShareList } = require('../share');
 const { SHARE_MAX_EXPIRE_HOURS } = require('../config');
+const { authLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
@@ -49,11 +50,12 @@ router.post('/', requireAuth, async (req, res) => {
       shareId: share.shareId,
       shareUrl,
       expiresAt: share.expiresAt,
-      hasPassword: Boolean(share.password)
+      hasPassword: Boolean(share.passwordHash || share.password)
     });
   } catch (error) {
     console.error('创建分享失败:', error);
-    return res.status(400).json({ error: error.message || '创建分享失败' });
+    const known = error.message === '消息不存在' || error.code === 'UPLOAD_TOO_LARGE';
+    return res.status(known ? (error.status || 404) : 500).json({ error: known ? error.message : '创建分享失败' });
   }
 });
 
@@ -75,7 +77,7 @@ router.get('/:shareId', async (req, res) => {
 });
 
 // 验证分享密码
-router.post('/:shareId/verify', async (req, res) => {
+router.post('/:shareId/verify', authLimiter, async (req, res) => {
   const { shareId } = req.params;
   const { password } = req.body;
 
@@ -93,9 +95,9 @@ router.post('/:shareId/verify', async (req, res) => {
 });
 
 // 获取分享消息内容
-router.get('/:shareId/content', async (req, res) => {
+router.post('/:shareId/content', authLimiter, async (req, res) => {
   const { shareId } = req.params;
-  const { password } = req.query;
+  const { password } = req.body;
 
   try {
     // 如果有密码保护，先验证密码

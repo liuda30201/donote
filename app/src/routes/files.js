@@ -4,7 +4,7 @@ const path = require('path');
 const { MAX_PREVIEW_BYTES } = require('../config');
 const { requireAuth, getUserByPassword, resolveCredential } = require('../middleware/auth');
 const { getUserState, getUploadRoot, schedulePersist } = require('../storage');
-const { uploadMiddleware, resolveUploadAbsolute } = require('../upload');
+const { uploadMiddleware, resolveUploadAbsolute, resolveUploadPolicy, withUploadOperation, commitUploadMutation, actualFileBytes } = require('../upload');
 const { toPublicMessage } = require('../message');
 const {
   createMessageId, toDateFolder, sanitizeFilename, decodeFilename,
@@ -12,148 +12,100 @@ const {
   contentDisposition, isActiveContent, isPreviewableText, readCookie
 } = require('../utils');
 
-const router = express.Router();
+const { trackRouter } = require('../lifecycle');
+const router = trackRouter(express.Router());
 
-// multipart/form-data 上传
+// multipart/form-data 上传：Multer、文件发布、usage admission 和JSON提交
+// 全程占用同一个进程级 upload slot；落盘真实字节由文件流计数及lstat复核。
 const uploadFields = uploadMiddleware.fields([
   { name: 'file', maxCount: 1 },
   { name: 'thumbnail', maxCount: 1 }
 ]);
 
-router.post('/upload', requireAuth, (req, res, next) => {
-  uploadFields(req, res, (err) => {
-    if (err) {
-      console.error('上传中间件错误:', err);
-      return res.status(400).json({ error: err.message || '文件上传失败' });
-    }
-    next();
-  });
-}, async (req, res) => {
-  const mainFile = req.files && req.files.file ? req.files.file[0] : req.file;
-  const thumbFile = req.files && req.files.thumbnail ? req.files.thumbnail[0] : null;
-
-  if (!mainFile) {
-    if (thumbFile) await fs.unlink(thumbFile.path).catch(() => {});
-    return res.status(400).json({ error: '缺少文件' });
-  }
-
-  const userId = req.userId;
-  const state = getUserState(userId);
-  const uploadRoot = getUploadRoot(userId);
-
-  const type = req.body.type || 'file';
-  if (type !== 'image' && type !== 'file') {
-    await fs.unlink(mainFile.path).catch(() => {});
-    if (thumbFile) await fs.unlink(thumbFile.path).catch(() => {});
-    return res.status(400).json({ error: '不支持的消息类型' });
-  }
-
-  const id = createMessageId();
-  const category = type === 'image' ? 'images' : 'files';
-  const dateDir = toDateFolder();
-  const decodedName = decodeFilename(mainFile.originalname || 'file');
-  const safeName = sanitizeFilename(decodedName);
-  const parsed = path.parse(safeName);
-  const ext = parsed.ext || extensionFromMime(mainFile.mimetype) || '';
-  const suffix = type === 'image' ? '-orig' : '';
-  const filename = category === 'files'
-    ? `${id}-${parsed.name}${ext}`
-    : `${id}${suffix}${ext}`;
-
-  const mainOldPath = mainFile.path;
-  const mainRelativePath = path.join(category, dateDir, filename);
-  const mainAbsolutePath = path.join(uploadRoot, mainRelativePath);
-
-  await ensureDir(path.dirname(mainAbsolutePath));
-
+router.post('/upload', requireAuth, async (req, res) => {
   try {
-    await fs.rename(mainOldPath, mainAbsolutePath);
-  } catch (error) {
-    await fs.copyFile(mainOldPath, mainAbsolutePath);
-    await fs.unlink(mainOldPath).catch(() => {});
-  }
-
-  let thumbRelativePath = mainRelativePath;
-  let thumbMimeType = mainFile.mimetype;
-
-  if (type === 'image' && thumbFile) {
-    const thumbExt = path.extname(thumbFile.originalname) || extensionFromMime(thumbFile.mimetype) || '.webp';
-    const thumbFilename = `${id}-thumb${thumbExt}`;
-    const thumbOldPath = thumbFile.path;
-    const thumbNewRelPath = path.join(category, dateDir, thumbFilename);
-    const thumbNewAbsPath = path.join(uploadRoot, thumbNewRelPath);
-
-    try {
-      await fs.rename(thumbOldPath, thumbNewAbsPath);
-      thumbRelativePath = thumbNewRelPath;
-      thumbMimeType = thumbFile.mimetype;
-    } catch (error) {
-      try {
-        await fs.copyFile(thumbOldPath, thumbNewAbsPath);
-        await fs.unlink(thumbOldPath).catch(() => {});
-        thumbRelativePath = thumbNewRelPath;
-        thumbMimeType = thumbFile.mimetype;
-      } catch (copyErr) {
-        console.error('保存缩略图失败，回退使用原图:', copyErr);
+    const result = await withUploadOperation(async () => {
+      await new Promise((resolve, reject) => uploadFields(req, res, error => error ? reject(error) : resolve()));
+      const mainFile = req.files?.file?.[0] || req.file;
+      const thumbFile = req.files?.thumbnail?.[0] || null;
+      if (!mainFile) {
+        const error = new Error('缺少文件'); error.statusCode = 400; throw error;
       }
-    }
-  } else if (thumbFile) {
-    await fs.unlink(thumbFile.path).catch(() => {});
+      const userId = req.userId;
+      const type = req.body.type || 'file';
+      if (!['image', 'file'].includes(type)) { const error = new Error('不支持的消息类型'); error.statusCode = 400; throw error; }
+      if (type !== 'image' && thumbFile) { const error = new Error('非图片上传不接受缩略图'); error.statusCode = 400; throw error; }
+
+      const mainBytes = await actualFileBytes(mainFile.path);
+      const thumbBytes = thumbFile ? await actualFileBytes(thumbFile.path) : 0;
+      if (mainBytes + thumbBytes > 2 * 100 * 1024 * 1024) { const error = new Error('上传内容过大'); error.statusCode = 413; throw error; }
+      const id = createMessageId();
+      const category = type === 'image' ? 'images' : 'files';
+      const dateDir = toDateFolder();
+      const safeName = sanitizeFilename(decodeFilename(mainFile.originalname || 'file'));
+      const parsed = path.parse(safeName);
+      const ext = parsed.ext || extensionFromMime(mainFile.mimetype) || '';
+      const mainName = category === 'files' ? `${id}-${parsed.name}${ext}` : `${id}-orig${ext}`;
+      const mainRelativePath = path.join(category, dateDir, mainName);
+      const thumbRelativePath = thumbFile
+        ? path.join(category, dateDir, `${id}-thumb${path.extname(thumbFile.originalname) || extensionFromMime(thumbFile.mimetype) || '.webp'}`)
+        : mainRelativePath;
+      const remark = typeof req.body.remark === 'string' ? req.body.remark.trim().slice(0, 500) : '';
+      const message = { id, type, content: {}, remark, timestamp: Date.now() };
+      if (type === 'image') {
+        message.content = {
+          originalPath: mainRelativePath,
+          thumbnailPath: thumbRelativePath,
+          hasOriginal: Boolean(thumbFile),
+          originalMimeType: mainFile.mimetype,
+          thumbnailMimeType: thumbFile?.mimetype || mainFile.mimetype
+        };
+      } else {
+        message.content = { name: safeName, size: mainBytes, mimeType: mainFile.mimetype, filePath: mainRelativePath };
+      }
+
+      const policy = resolveUploadPolicy(req);
+      await commitUploadMutation(userId, async candidate => {
+        const mainTarget = resolveUploadAbsolute(mainRelativePath, userId);
+        const thumbTarget = thumbFile ? resolveUploadAbsolute(thumbRelativePath, userId) : null;
+        const { publishTempFile } = require('../upload');
+        await publishTempFile(mainFile.path, mainRelativePath, userId);
+        if (thumbFile) await publishTempFile(thumbFile.path, thumbRelativePath, userId);
+        // Verify actual published bytes, never the multipart header's declared size.
+        const finalMainSize = await actualFileBytes(mainTarget);
+        if (thumbTarget) await actualFileBytes(thumbTarget);
+        if (type === 'file') message.content.size = finalMainSize;
+        candidate.messages.push(message);
+        return toPublicMessage(message, userId);
+      }, { policy });
+      const publicMessage = toPublicMessage(message, userId);
+      req.app.get('io')?.broadcastMessage(userId, publicMessage);
+      return publicMessage;
+    }, { req });
+    if (res.destroyed || res.writableEnded) return;
+    return res.json({ success: true, message: result });
+  } catch (error) {
+    console.error('文件上传失败:', error);
+    if (res.destroyed || res.writableEnded) return;
+    const status = error.statusCode || (error.code === 'UPLOAD_TOO_LARGE' || error.code === 'QUOTA_EXCEEDED' ? 413 : error.code === 'UPLOAD_POLICY_UNAVAILABLE' ? 503 : 400);
+    return res.status(status).json({ error: status === 413 ? '存储空间或上传大小超限' : status === 503 ? '上传服务暂不可用' : (error.statusCode === 400 ? error.message : '文件上传失败'), code: error.code || 'UPLOAD_FAILED' });
   }
-
-  const remark = typeof req.body.remark === 'string' ? req.body.remark.trim().slice(0, 500) : '';
-
-  const message = {
-    id,
-    type,
-    content: {},
-    remark,
-    timestamp: Date.now()
-  };
-
-  if (type === 'image') {
-    message.content = {
-      originalPath: mainRelativePath,
-      thumbnailPath: thumbRelativePath,
-      hasOriginal: Boolean(thumbRelativePath && thumbRelativePath !== mainRelativePath),
-      originalMimeType: mainFile.mimetype,
-      thumbnailMimeType: thumbMimeType
-    };
-  } else {
-    message.content = {
-      name: safeName,
-      size: mainFile.size,
-      mimeType: mainFile.mimetype,
-      filePath: mainRelativePath
-    };
-  }
-
-  state.messages.push(message);
-  state.lastActivity = Date.now();
-  schedulePersist(userId);
-
-  const publicMessage = toPublicMessage(message, userId);
-
-  req.app.get('io').broadcastMessage(userId, publicMessage);
-
-  return res.json({ success: true, message: publicMessage });
 });
 
-// 允许通过查询参数 password 或 Cookie wc_auth 认证（供 <img>/<audio>/<video> 直接引用）
+// Media elements authenticate through the HttpOnly session cookie or proxy header.
 function requireAuthOrCookie(req, res, next) {
+  if (req.app.get('authService')) return requireAuth(req, res, next);
   const header = req.headers || {};
-  const query = req.query || {};
-  // Cookie 中的凭据为 base64(密码)，直传的 password 参数为明文，两种都接受
+  // Legacy cookie credentials are base64 encoded; never accept URL passwords.
   const resolved = resolveCredential(
     header['x-access-password'],
-    query.password,
     readCookie(header.cookie || '', 'wc_auth')
   );
   const userId = getUserByPassword(resolved);
   if (userId === undefined) {
     return res.status(401).json({ error: '未授权访问' });
   }
-  const claimed = query.userId || header['x-user-id'] || null;
+  const claimed = req.query?.userId || header['x-user-id'] || null;
   if (claimed && userId !== null && claimed !== userId) {
     return res.status(401).json({ error: '未授权访问' });
   }

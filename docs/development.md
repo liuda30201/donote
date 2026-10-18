@@ -24,35 +24,63 @@
 
 `share.js`、分享路由与分享页面来自上游；本地不注册分享 API，Nginx 阻止分享页面。后端仍使用分享模块清理旧数据，暂保留这些文件以兼容已有数据。
 
-## 本地运行
+Dockerfile 使用 Node.js 24，适配当前目标镜像和 Mac Apple Silicon/OrbStack 开发。无需安装 Docker 内原生依赖到宿主机；OrbStack 需处于运行状态。
 
-Docker 基础镜像使用 Node.js 18；本地检查建议使用兼容版本。
+### OrbStack 容器开发
+
+在仓库根目录执行：
+
+```bash
+cp .env.example .env
+chmod 600 .env
+# 编辑 .env，设置开发专用 ACCESS_PASSWORD
+
+docker compose -f docker-compose.dev.yml up -d --build
+open http://127.0.0.1:3000
+docker compose -f docker-compose.dev.yml ps
+docker compose -f docker-compose.dev.yml logs -f app
+```
+
+开发 Compose 只启动 app，不启动 Nginx，不要求域名或证书。端口仅绑定到宿主机 loopback。数据使用 `.dev-data/`，与生产 `data/` 隔离；如需换数据目录，可设置 `DEV_DATA_DIR`，端口可用 `DEV_PORT` 修改。结束后运行：
+
+```bash
+docker compose -f docker-compose.dev.yml down
+```
+
+容器会按 SIGTERM 优雅关闭，开发数据默认保留。切勿把生产数据目录指定给 `DEV_DATA_DIR`。
+
+### 宿主机 Node 开发
+
+也可不使用容器，直接在 macOS 安装匹配的 Node.js：
 
 ```bash
 npm ci --prefix app
-# 使用独立开发目录，不读取生产数据；服务默认监听 3000
-STORAGE_ROOT="$PWD/app/data" ACCESS_PASSWORD=development-only npm --prefix app start
+STORAGE_ROOT="$PWD/.dev-data" ACCESS_PASSWORD=development-only PORT=3000 npm --prefix app start
 ```
 
-应用直接读取进程环境变量，**不会自动加载根目录 `.env`**；`.env` 由 Compose 使用。本地直连只适合开发，部署入口使用 Nginx。
+访问 `http://127.0.0.1:3000`。应用直接读取进程环境变量，不会自动加载根目录 `.env`；`.env` 只由 Compose 加载。直接运行时请显式设置数据目录和开发密码。
+
+### Accounts 模式
+
+日常前端和 legacy 单用户接口开发优先使用以上开发 Compose。若专门验证 accounts 模式，需要独立临时数据目录、外置 0600 AUTH key 和 content keyring，并显式设置 `AUTH_DEV_HTTP=1` 与精确 loopback `AUTH_ORIGIN`（例如 `http://127.0.0.1:3000`）。不要复用生产密钥或数据库；accounts 部署 Compose 与开发 Compose 分开，不要合并配置。
 
 ## 检查与测试
 
 ```bash
-./scripts/check.sh          # Shell、JSON、依赖元数据和 Compose；有 Node 时也检查 JS
+./scripts/check.sh          # Shell、JSON、依赖元数据和两个 Compose 配置；有 Node 时也检查 JS
 npm --prefix app run check  # JavaScript 语法检查，无第三方依赖
 npm --prefix app test       # 需要先 npm ci --prefix app
 ```
 
 接口测试启动随机端口，并创建和删除系统临时数据目录。覆盖登录、消息创建与搜索、备注、收藏、清空、上传、Cookie 下载、Range、预览限制、禁用接口、删除和多用户文件隔离，不读取 `.env` 或 `data/`。
 
-宿主机没有 Node.js 时，可复用已有应用镜像中的 Node 和依赖：
+宿主机没有 Node.js 时，可复用 OrbStack 中已构建的开发镜像中的 Node 和依赖：
 
 ```bash
 docker run --rm --network none --user "$(id -u):$(id -g)" \
   --mount "type=bind,src=$PWD,dst=/workspace,readonly" \
   -e NODE_PATH=/app/node_modules --entrypoint sh \
-  web-clipboard-local:1.6.9-p2 \
+  web-clipboard-local:dev \
   -c 'node /workspace/scripts/check-js.js && node --test /workspace/app/test/*.test.js'
 ```
 

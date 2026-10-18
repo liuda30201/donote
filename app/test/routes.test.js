@@ -32,7 +32,22 @@ test('消息与文件路由在独立数据目录中保持原有行为', async (t
 
   let messageId;
   await t.test('登录、静态资源与未知 API', async () => {
-    assert.equal((await fetch(base + '/')).status, 200);
+    const landing = await fetch(base + '/');
+    assert.equal(landing.status, 200);
+    assert.match(await landing.text(), /DoNote.*复制过的内容，在这里继续/);
+    const loginPage = await fetch(base + '/login');
+    assert.equal(loginPage.status, 200);
+    assert.match(await loginPage.text(), /id="auth-section"/);
+    const appPage = await fetch(base + '/app');
+    assert.equal(appPage.status, 200);
+    assert.match(await appPage.text(), /id="chat-section"/);
+    assert.equal((await fetch(base + '/landing.css?v=3')).status, 200);
+    assert.equal((await fetch(base + '/landing.js?v=1')).status, 200);
+    for (const image of ['workspace-overview.png', 'collect-paste.png', 'search-preview.png', 'across-devices.png']) {
+      assert.equal((await fetch(base + '/images/' + image)).status, 200);
+    }
+    const manifest = await (await fetch(base + '/manifest.json')).json();
+    assert.equal(manifest.start_url, '/app');
     const status = await (await fetch(base + '/api/auth/status')).json();
     assert.deepEqual(status, { mode: 'single', requirePassword: true });
     assert.equal((await fetch(base + '/api/messages')).status, 401);
@@ -43,10 +58,22 @@ test('消息与文件路由在独立数据目录中保持原有行为', async (t
     assert.equal((await unknown.json()).error, 'Not Found');
   });
 
+  await t.test('拒绝 URL 密码与超限 JSON，404 不回显查询凭据', async () => {
+    const queryOnly = await fetch(base + '/api/messages?password=' + encodeURIComponent(process.env.ACCESS_PASSWORD));
+    assert.equal(queryOnly.status, 401);
+    const oversized = await jsonRequest('/api/messages', 'POST', { type: 'text', content: 'a'.repeat(1024 * 1024) });
+    assert.equal(oversized.status, 413);
+    const unknown = await fetch(base + '/api/nonexistent?password=secret');
+    assert.deepEqual(await unknown.json(), { error: 'Not Found' });
+  });
+
   await t.test('消息创建、搜索、备注、收藏与清空', async () => {
     const created = await jsonRequest('/api/messages', 'POST', { type: 'text', content: '整理回归测试' });
     assert.equal(created.status, 200);
     messageId = (await created.json()).message.id;
+    while (hasPendingPersist()) await new Promise((resolve) => setTimeout(resolve, 10));
+    const persisted = JSON.parse(await fs.readFile(path.join(storageRoot, 'messages.json'), 'utf8'));
+    assert.equal(persisted.messages.some((message) => message.id === messageId), true);
     assert.equal((await jsonRequest(`/api/messages/${messageId}/remark`, 'PATCH', { remark: '测试备注' })).status, 200);
     const search = await (await fetch(base + '/api/messages/search?q=' + encodeURIComponent('测试备注'), { headers: credentials })).json();
     assert.equal(search.messages[0].id, messageId);

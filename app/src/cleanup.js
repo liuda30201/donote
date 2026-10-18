@@ -1,23 +1,18 @@
 const fs = require('fs/promises');
 const path = require('path');
 const { MULTI_USER_MODE, EXPIRE_TIME, STORAGE_ROOT, FILE_CLEANUP_INTERVAL_MINUTES } = require('./config');
-const { getUserState, userStates, loadPersistedState, getUploadRoot, schedulePersist } = require('./storage');
-const { deleteMessageFiles, getMessageFileRefs } = require('./upload');
+const { getUserState, hasUserState, loadPersistedState, getUploadRoot, getDataFile, withUserMutation, persistCandidateLocked } = require('./storage');
+const { deleteMessageFiles, getMessageFileRefs, getActiveTempFiles, isActiveUploadPath, resolveUploadPolicy } = require('./upload');
+const { measurePhysicalUsage } = require('./quota');
 const { toPosixPath } = require('./utils');
 const { cleanupExpiredShares, deleteSharesByMessageId } = require('./share');
 const { socketHelper } = require('./socket');
 
-// 注：过期数据清理与孤儿文件清理各自用自己的互斥手段 —— 前者是同步内存操作，
-// 重复执行只是白跑一遍；后者是慢速 IO 且会在多用户模式下被循环调用，用按 userId
-// 的单飞表（见 cleanupOrphanDiskFiles）。这里不再保留历史遗留的全局布尔量。
-//
-// 关于定时任务的压栈风险：cleanupAllUsersExpiredData / cleanupAllUsersOrphanFiles
-// 由 setInterval 直接调度。内存操作为主时它们远快于 5 分钟间隔，不会堆积；
-// 若将来某个用户的目录异常庞大（上万文件），单次遍历可能超过间隔并造成多轮并发，
-// 届时再补做「整轮清理」的单飞，当前规模无需引入这层复杂度。
+// The scheduler serializes each kind of cleanup for its entire async lifetime.
+// Per-user orphan cleanup also shares work with direct callers (see below).
 
 // 清理过期数据
-async function cleanupExpiredData(userId = null) {
+async function cleanupExpiredDataLocked(userId = null) {
   const state = getUserState(userId);
   const now = Date.now();
   const keptMessages = [];
@@ -31,12 +26,14 @@ async function cleanupExpiredData(userId = null) {
     }
   }
 
-  if (expiredMessages.length === 0) {
-    return;
-  }
+  if (expiredMessages.length === 0) return;
 
-  state.messages = keptMessages;
-  schedulePersist(userId);
+  const candidate = structuredClone(state);
+  candidate.messages = keptMessages;
+  candidate.lastActivity = Date.now();
+  await persistCandidateLocked(userId, candidate);
+  state.messages = candidate.messages;
+  state.lastActivity = candidate.lastActivity;
 
   // 广播通知客户端移除过期消息
   if (socketHelper && socketHelper.io) {
@@ -62,10 +59,22 @@ async function cleanupExpiredData(userId = null) {
     expiredMessages.map((msg) => deleteMessageFiles(msg, userId))
   );
   for (const result of fileResults) {
-    if (result.status === 'rejected') {
-      console.error('清理过期文件失败:', result.reason);
-    }
+    if (result.status === 'rejected') console.error('清理过期文件失败:', result.reason);
   }
+}
+
+async function cleanupExpiredData(userId = null, options = {}) {
+  return withUserMutation(userId, async () => {
+    const before = await measurePhysicalUsage({ messagesFile: getDataFile(userId), uploadRoot: getUploadRoot(userId) });
+    await cleanupExpiredDataLocked(userId);
+    let policy = null;
+    try { policy = resolveUploadPolicy(); } catch { /* startup cleanup may run before app policy injection */ }
+    if (policy?.afterCommit) {
+      const actual = await measurePhysicalUsage({ messagesFile: getDataFile(userId), uploadRoot: getUploadRoot(userId) });
+      try { await policy.afterCommit({ userId, operation: 'cleanup-expired', bytesDelta: actual.bytes - before.bytes, storageRoot: getUploadRoot(userId), dataFile: getDataFile(userId), actualBytes: actual.bytes }); }
+      catch (error) { console.error('清理后usage对账失败:', error); }
+    }
+  }, options);
 }
 
 // 清理所有用户过期数据
@@ -84,7 +93,7 @@ async function cleanupAllUsersExpiredData() {
     }
 
     for (const userId of userDirs) {
-      if (!userStates.has(userId)) {
+      if (!hasUserState(userId)) {
         await loadPersistedState(userId);
       }
       await cleanupExpiredData(userId);
@@ -111,7 +120,7 @@ async function listAllFilesRecursive(baseDir) {
       const fullPath = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {
         await walk(fullPath);
-      } else if (entry.isFile()) {
+      } else if (entry.isFile() && !isActiveUploadPath(fullPath) && !getActiveTempFiles().has(path.resolve(fullPath))) {
         out.push(fullPath);
       }
     }
@@ -159,7 +168,7 @@ async function removeEmptyDirsRecursive(dirPath, isRoot = true) {
 // 现在：并发请求同一个 userId 时复用同一个 Promise；不同 userId 各自独立执行。
 const orphanCleanupInflight = new Map();
 
-async function cleanupOrphanDiskFiles(userId = null) {
+async function cleanupOrphanDiskFilesLocked(userId = null) {
   const key = userId || '\u0000single';
   const running = orphanCleanupInflight.get(key);
   if (running) return running;
@@ -167,6 +176,8 @@ async function cleanupOrphanDiskFiles(userId = null) {
   const task = (async () => {
     const uploadRoot = getUploadRoot(userId);
     const state = getUserState(userId);
+    const before = await measurePhysicalUsage({ messagesFile: getDataFile(userId), uploadRoot });
+    const activeTemps = getActiveTempFiles();
 
     const referenced = new Set();
     for (const msg of state.messages) {
@@ -178,6 +189,7 @@ async function cleanupOrphanDiskFiles(userId = null) {
     let removedCount = 0;
 
     for (const absolutePath of allFiles) {
+      if (activeTemps.has(path.resolve(absolutePath)) || isActiveUploadPath(absolutePath)) continue;
       const relativePath = toPosixPath(path.relative(uploadRoot, absolutePath));
       if (!referenced.has(relativePath)) {
         await fs.unlink(absolutePath).catch((error) => {
@@ -190,8 +202,13 @@ async function cleanupOrphanDiskFiles(userId = null) {
 
     await removeEmptyDirsRecursive(uploadRoot, true);
 
-    if (removedCount > 0) {
-      console.log(`孤儿文件清理完成，用户 ${userId || '单用户'} 删除 ${removedCount} 个文件`);
+    if (removedCount > 0) console.log(`孤儿文件清理完成，用户 ${userId || '单用户'} 删除 ${removedCount} 个文件`);
+    let policy = null;
+    try { policy = resolveUploadPolicy(); } catch { /* startup cleanup may run before app policy injection */ }
+    if (policy?.afterCommit) {
+      const actual = await measurePhysicalUsage({ messagesFile: getDataFile(userId), uploadRoot });
+      try { await policy.afterCommit({ userId, operation: 'cleanup-orphans', bytesDelta: actual.bytes - before.bytes, storageRoot: uploadRoot, dataFile: getDataFile(userId), actualBytes: actual.bytes }); }
+      catch (error) { console.error('孤儿清理后usage对账失败:', error); }
     }
     return removedCount;
   })().catch((error) => {
@@ -203,6 +220,10 @@ async function cleanupOrphanDiskFiles(userId = null) {
 
   orphanCleanupInflight.set(key, task);
   return task;
+}
+
+async function cleanupOrphanDiskFiles(userId = null, options = {}) {
+  return withUserMutation(userId, () => cleanupOrphanDiskFilesLocked(userId), options);
 }
 
 // 清理所有用户孤儿文件
@@ -229,13 +250,33 @@ async function cleanupAllUsersOrphanFiles() {
 
 // 启动清理定时任务
 function startCleanupSchedulers() {
-  // 服务启动时立即执行一次过期数据清理与分享清理
-  cleanupAllUsersExpiredData().catch((error) => console.error('初始过期数据清理失败:', error));
-  cleanupExpiredShares().catch((error) => console.error('初始过期分享清理失败:', error));
-
-  setInterval(cleanupAllUsersExpiredData, 5 * 60 * 1000);
-  setInterval(cleanupAllUsersOrphanFiles, FILE_CLEANUP_INTERVAL_MINUTES * 60 * 1000);
-  setInterval(cleanupExpiredShares, 5 * 60 * 1000);
+  let stopped = false;
+  let stopTask = null;
+  const active = new Map();
+  function run(kind, job) {
+    if (stopped) return;
+    if (active.has(kind)) return active.get(kind);
+    const task = Promise.resolve().then(job)
+      .catch((error) => console.error(`清理任务失败 (${kind}):`, error))
+      .finally(() => active.delete(kind));
+    active.set(kind, task);
+    return task;
+  }
+  run('expired', cleanupAllUsersExpiredData);
+  run('shares', cleanupExpiredShares);
+  const timers = [
+    setInterval(() => run('expired', cleanupAllUsersExpiredData), 5 * 60 * 1000),
+    setInterval(() => run('orphans', cleanupAllUsersOrphanFiles), FILE_CLEANUP_INTERVAL_MINUTES * 60 * 1000),
+    setInterval(() => run('shares', cleanupExpiredShares), 5 * 60 * 1000)
+  ];
+  // Remain callable for existing callers; await the return value for safe shutdown.
+  return function stop() {
+    if (stopTask) return stopTask;
+    stopped = true;
+    timers.forEach(clearInterval);
+    stopTask = Promise.all([...active.values(), ...orphanCleanupInflight.values()]).then(() => undefined);
+    return stopTask;
+  };
 }
 
 module.exports = {

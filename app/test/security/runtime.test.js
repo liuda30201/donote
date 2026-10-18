@@ -1,0 +1,31 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { createSecurityRuntime } = require('../../src/security/runtime');
+
+test('accounts runtime requires private stable key and exact HTTPS or explicit loopback origins', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dn-runtime-'));
+  t.after(() => fs.rmSync(root, { recursive:true, force:true }));
+  const storageRoot = path.join(root, 'data'); fs.mkdirSync(storageRoot);
+  const keyPath = path.join(root, 'key');
+  const key = crypto.randomBytes(32);
+  fs.writeFileSync(keyPath, key, {mode:0o600});
+  const env = { AUTH_KEY_FILE:keyPath, AUTH_ORIGIN:'https://notes.example' };
+  assert.throws(() => createSecurityRuntime({storageRoot,env:{}}), /requires/);
+  fs.chmodSync(keyPath, 0o644);
+  assert.throws(() => createSecurityRuntime({storageRoot,env}), /private/);
+  fs.chmodSync(keyPath, 0o600);
+  assert.throws(() => createSecurityRuntime({storageRoot,env:{...env,AUTH_ORIGIN:'http://notes.example'}}), /HTTPS/);
+  assert.throws(() => createSecurityRuntime({storageRoot,env:{...env,AUTH_DEV_HTTP:'1',AUTH_ORIGIN:'http://notes.example'}}), /loopback/);
+  const runtime = createSecurityRuntime({storageRoot,env});
+  assert.equal(runtime.authService.cookieName, '__Host-dn_session');
+  runtime.close();
+  assert.deepEqual(fs.readFileSync(keyPath), key);
+  const development = createSecurityRuntime({storageRoot,env:{...env,AUTH_DEV_HTTP:'1',AUTH_ORIGIN:'http://127.0.0.1:3000'}});
+  assert.equal(development.authService.cookieName, 'dn_session_dev');
+  development.close();
+});

@@ -1,227 +1,213 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Web Clipboard - 跨设备剪贴板</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="style.css?v=1.7.5">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DoNote · 复制过的内容，在这里继续</title>
+  <meta name="description" content="DoNote 是你的私有跨设备工作台。粘贴文字、代码、链接、截图和文件，换设备继续用。">
+  <meta name="theme-color" content="#ffffff">
+  <meta property="og:title" content="DoNote · 复制过的内容，在这里继续">
+  <meta property="og:description" content="粘贴进来，搜索找回，换设备接着用。">
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/landing.css?v=3">
+  <script src="/landing.js?v=1" defer></script>
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#0f172a">
-  <link rel="apple-touch-icon" href="/favicon.svg">
-  <script>
-    (function() {
-      try {
-        var hasPass = localStorage.getItem('web-clipboard-password');
-        var exp = localStorage.getItem('web-clipboard-login-expires');
-        if (hasPass && (!exp || Date.now() < parseInt(exp, 10))) {
-          document.documentElement.classList.add('preload-auth');
-        }
-      } catch (e) {}
-    })();
-  </script>
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
-
 <body>
-  <div class="container">
-    <!-- 未登录态：全屏居中认证页 -->
-    <div id="auth-section" class="section auth-screen">
-      <div class="auth-card">
-        <div class="auth-brand">
-          <div class="auth-logo" aria-hidden="true">📋</div>
-          <h1>Web Clipboard</h1>
-          <p class="subtitle">私有跨设备剪贴板工作台</p>
+  <a class="skip-link" href="#main">跳到正文</a>
+
+  <!-- ── nav ── -->
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="/" aria-label="DoNote 首页">
+        <img src="/logo.png" width="28" height="28" alt="">
+        <span>DoNote</span>
+      </a>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="#collect">收集</a>
+        <a href="#search">搜索</a>
+        <a href="#devices">跨设备</a>
+        <a href="#privacy">隐私</a>
+      </nav>
+      <a class="nav-cta" href="/login">登录工作台</a>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- ── hero ── -->
+    <section class="hero">
+      <div class="hero-inner">
+        <h1>复制过的内容，<br>在这里继续。</h1>
+        <p class="hero-sub">把文字、代码、链接、截图和文件粘贴进来，需要时搜索找回，换个设备接着用。</p>
+        <div class="hero-btns">
+          <a class="btn btn-primary" href="/login">进入工作台</a>
+          <a class="btn btn-ghost" href="#collect">了解功能 ↓</a>
         </div>
-        <div class="auth-form">
-          <h2>请输入访问密码</h2>
-          <div class="password-field-wrapper">
-            <input type="password" id="password-input" placeholder="输入访问密码" autocomplete="current-password" autofocus>
-            <button type="button" id="toggle-password-btn" class="password-toggle-btn" title="显示/隐藏密码" aria-label="显示或隐藏密码">👁️</button>
+        <p class="hero-note">
+          <span class="live-dot" aria-hidden="true"></span>
+          浏览器打开即用 &nbsp;·&nbsp; 不监听系统剪贴板
+        </p>
+      </div>
+      <div class="hero-shot">
+        <picture>
+          <source type="image/webp" srcset="/images/workspace-overview.webp">
+          <img
+            src="/images/workspace-overview.png"
+            width="1360" height="820"
+            alt="DoNote 工作台，展示文字、代码、链接、图片和文件卡片，均为示例内容"
+            fetchpriority="high"
+          >
+        </picture>
+      </div>
+    </section>
+
+    <!-- ── badge strip ── -->
+    <div class="strip" aria-label="支持的内容类型">
+      <div class="strip-inner">
+        <span class="strip-label">一个地方，收好所有正在用的东西</span>
+        <div class="strip-types">
+          <span><i class="dot dot-text" aria-hidden="true"></i>文字</span>
+          <span><i class="dot dot-code" aria-hidden="true"></i>代码</span>
+          <span><i class="dot dot-link" aria-hidden="true"></i>链接</span>
+          <span><i class="dot dot-image" aria-hidden="true"></i>图片</span>
+          <span><i class="dot dot-file" aria-hidden="true"></i>文件</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── feature 1: collect ── -->
+    <section class="feat" id="collect" aria-labelledby="feat1-title">
+      <div class="feat-copy">
+        <p class="feat-num" aria-hidden="true">01</p>
+        <h2 id="feat1-title">不用再把东西发给自己。</h2>
+        <p>从任何浏览器里粘贴，或者上传一个文件。临时的内容先收进来，下一步的事情，等你准备好再说。</p>
+      </div>
+      <div class="feat-media">
+        <picture>
+          <source type="image/webp" srcset="/images/collect-paste.webp">
+          <img
+            src="/images/collect-paste.png"
+            width="1000" height="700"
+            loading="lazy"
+            alt="代码编辑器和 DoNote 工作台并排，演示从编辑器粘贴代码片段到工作台，均为示例内容"
+          >
+        </picture>
+      </div>
+    </section>
+
+    <!-- ── feature 2: search ── -->
+    <section class="feat feat-reverse" id="search" aria-labelledby="feat2-title">
+      <div class="feat-copy">
+        <p class="feat-num" aria-hidden="true">02</p>
+        <h2 id="feat2-title">记得一个词，就能找到它。</h2>
+        <p>搜索内容、文件名或备注，再用类型筛选缩小范围。收藏经常复用的条目，让下一次用起来更近。</p>
+      </div>
+      <div class="feat-media">
+        <picture>
+          <source type="image/webp" srcset="/images/search-preview.webp">
+          <img
+            src="/images/search-preview.png"
+            width="900" height="580"
+            loading="lazy"
+            alt="搜索「出行」后的结果页面，显示文字计划和图片参考两张卡片，均为示例"
+          >
+        </picture>
+      </div>
+    </section>
+
+    <!-- ── feature 3: cross-device ── -->
+    <section class="feat" id="devices" aria-labelledby="feat3-title">
+      <div class="feat-copy">
+        <p class="feat-num" aria-hidden="true">03</p>
+        <h2 id="feat3-title">换一个设备，<br>不用重新开始。</h2>
+        <p>在另一台设备的浏览器里登录同一账户，继续查看、复制、预览或下载。DoNote 连接的是你的工作台，不是某一台设备。</p>
+      </div>
+      <div class="feat-media">
+        <picture>
+          <source type="image/webp" srcset="/images/across-devices.webp">
+          <img
+            src="/images/across-devices.png"
+            width="1140" height="720"
+            loading="lazy"
+            alt="桌面浏览器窗口和手机屏幕显示同一账户的工作台，均为示例内容"
+          >
+        </picture>
+      </div>
+    </section>
+
+    <!-- ── privacy ── -->
+    <section class="privacy-sect" id="privacy" aria-labelledby="privacy-title">
+      <div class="privacy-inner">
+        <div class="privacy-copy">
+          <p class="feat-num" aria-hidden="true">04</p>
+          <h2 id="privacy-title">放进去的东西，只有你能看到。</h2>
+          <p>通过账户密码访问。每个账户的内容彼此独立，文件下载同样需要认证。</p>
+          <a class="btn btn-primary" href="/login">登录工作台</a>
+        </div>
+        <ul class="privacy-cards" role="list">
+          <li>
+            <strong>主动收集</strong>
+            <p>你粘贴或上传的内容才会进入工作台，不会在后台监听系统剪贴板。</p>
+          </li>
+          <li>
+            <strong>账户隔离</strong>
+            <p>内容属于登录账户，未经认证无法通过公开链接直接访问。</p>
+          </li>
+          <li>
+            <strong>真实边界</strong>
+            <p>这是一个私有工作台，不宣称端到端加密或无限存储。</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ── faq ── -->
+    <section class="faq-sect" aria-labelledby="faq-title">
+      <div class="faq-inner">
+        <div class="faq-lead">
+          <h2 id="faq-title">你可能想问</h2>
+        </div>
+        <dl class="faq-list">
+          <div>
+            <dt><button type="button" aria-expanded="false">需要安装客户端吗？<span aria-hidden="true">+</span></button></dt>
+            <dd hidden>不需要。用浏览器打开 DoNote 并登录即可。复制和粘贴能力会受到浏览器权限及设备支持情况的影响。</dd>
           </div>
-          <div class="login-duration-container">
-            <label class="checkbox-label">
-              <input type="checkbox" id="limit-duration-chk"> 限制登录时间
-            </label>
-            <select id="login-duration-select" class="login-duration-select" disabled>
-              <option value="10m">10 分钟</option>
-              <option value="30m">30 分钟</option>
-              <option value="1h">1 小时</option>
-              <option value="6h">6 小时</option>
-              <option value="12h">12 小时</option>
-              <option value="24h">24 小时</option>
-              <option value="3d">3 天</option>
-              <option value="7d">7 天</option>
-              <option value="30d">30 天</option>
-            </select>
+          <div>
+            <dt><button type="button" aria-expanded="false">会自动保存所有复制过的内容吗？<span aria-hidden="true">+</span></button></dt>
+            <dd hidden>不会。你需要在工作台手动粘贴或上传内容，DoNote 不会在后台监听设备剪贴板。</dd>
           </div>
-          <button id="auth-btn" class="btn btn-primary" type="button">进入工作台</button>
-          <p id="auth-error" class="error-msg hidden">密码错误，请重试</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- 登录态：现代全屏工作台 (Top Bar + Workspace + Composer Dock) -->
-    <div id="chat-section" class="section hidden">
-      <header class="app-topbar">
-        <div class="topbar-brand">
-          <span class="brand-logo" aria-hidden="true">📋</span>
-          <div class="brand-text">
-            <h1>Web Clipboard</h1>
-            <span id="version" class="version-badge"></span>
+          <div>
+            <dt><button type="button" aria-expanded="false">内容会一直保存吗？<span aria-hidden="true">+</span></button></dt>
+            <dd hidden>普通内容会按服务配置定期清理，收藏条目不参与常规过期清理。具体保留时间和存储额度以实际服务设置为准。</dd>
           </div>
-        </div>
-
-        <div class="tabs" role="tablist" aria-label="内容视图切换">
-          <button class="tab active" data-tab="messages" type="button">消息</button>
-          <button class="tab" data-tab="favorites" type="button">收藏 <span id="favorites-badge" class="tab-badge hidden">0</span></button>
-          <button class="tab" data-tab="shares" type="button">共享 <span id="shares-badge" class="tab-badge hidden">0</span></button>
-        </div>
-
-        <!-- 顶部搜索框：单行居中嵌入顶栏，不占用下方内容展示区域 -->
-        <div class="topbar-search-wrapper">
-          <input id="toolbar-search" class="topbar-search" type="search" autocomplete="off" placeholder="搜索剪贴板（文字 / 备注）...">
-          <button id="toolbar-clear" class="topbar-search-clear hidden" type="button" title="清空搜索">×</button>
-          <span id="toolbar-status" class="toolbar-status"></span>
-        </div>
-
-        <div class="status-bar">
-          <div class="status-bar-left">
-            <span id="current-user" class="status user-info hidden"></span>
-            <span id="connection-status" class="status connected">已连接</span>
-            <span id="expire-info" class="status-meta"></span>
-            <span id="message-count" class="status-meta">0 条消息</span>
+          <div>
+            <dt><button type="button" aria-expanded="false">没有账户，可以直接注册吗？<span aria-hidden="true">+</span></button></dt>
+            <dd hidden>当前使用已有账户登录，暂未开放自助注册。</dd>
           </div>
-          <div class="status-bar-right">
-            <!-- 方案 A：顶栏直观卡片大小缩放微型滑块 -->
-            <div class="card-size-controller" title="调节瀑布流卡片大小与列数">
-              <span class="card-size-icon" aria-hidden="true">▫</span>
-              <input type="range" id="card-size-slider" min="200" max="650" step="10" value="300" aria-label="卡片列宽">
-              <span class="card-size-icon" aria-hidden="true">◻</span>
-            </div>
-            <button id="clear-all" class="btn btn-small btn-danger" type="button" title="清空未收藏消息">清空</button>
-            <button id="layout-toggle" class="btn btn-small btn-secondary btn-icon" type="button" title="切换瀑布流 / 列表视图" aria-label="切换瀑布流或列表视图">⊞</button>
-            <button id="theme-toggle" class="btn btn-small btn-secondary btn-icon" type="button" title="切换深色 / 浅色模式" aria-label="切换深浅色主题">🌙</button>
-            <button id="logout-btn" class="btn btn-small btn-secondary" type="button">退出</button>
-          </div>
-        </div>
-      </header>
-
-      <div class="tab-panel active" data-panel="messages">
-        <div class="chat-container">
-          <button id="load-older-btn" class="load-older-btn hidden" type="button">↑ 加载更早历史消息</button>
-          <div id="messages-list" class="messages-list"></div>
-
-          <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden" type="button" title="滚动到最新消息">
-            <span class="scroll-bottom-icon">↓</span>
-            <span id="scroll-bottom-text">回到底部</span>
-          </button>
-
-          <!-- 极简单行输入坞：仅文本与直接 Ctrl+V 截图 -->
-          <div class="input-area" id="composer-area">
-            <div class="composer-shell">
-              <div class="input-row">
-                <textarea id="text-input" placeholder="输入或 Ctrl+V 直接粘贴剪贴内容/截图 (Enter 发送，Shift+Enter 换行)..." rows="1"></textarea>
-                <button id="send-text" class="btn btn-primary" type="button">发送</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        </dl>
       </div>
+    </section>
 
-      <div class="tab-panel" data-panel="favorites">
-        <div class="chat-container favorites-container">
-          <div id="favorites-list" class="messages-list"></div>
-        </div>
-      </div>
+    <!-- ── closing ── -->
+    <section class="closing" aria-labelledby="closing-title">
+      <h2 id="closing-title">让下一次继续，<br>有地方可去。</h2>
+      <a class="btn btn-primary btn-lg" href="/login">登录 DoNote</a>
+    </section>
 
-      <div class="tab-panel" data-panel="shares">
-        <div class="chat-container favorites-container">
-          <div id="shares-list" class="messages-list"></div>
-        </div>
-      </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <a class="nav-brand" href="/">
+        <img src="/logo.png" width="22" height="22" alt="">
+        <span>DoNote</span>
+      </a>
+      <p>安静、私有的跨设备剪贴工作台</p>
+      <a href="/login">进入工作台 →</a>
     </div>
-  </div>
+  </footer>
 
-  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
-
-  <div id="confirm-modal" class="modal hidden">
-    <div class="modal-content">
-      <h3 class="modal-title">确认操作</h3>
-      <p id="modal-message">确定要清空所有消息吗？</p>
-      <div class="modal-actions">
-        <button id="modal-cancel" class="btn btn-secondary" type="button">取消</button>
-        <button id="modal-confirm" class="btn btn-danger" type="button">确定</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="image-compress-modal" class="modal hidden">
-    <div class="modal-content image-compress-modal-content">
-      <h3 class="modal-title">图片较大提示</h3>
-      <p id="image-compress-message" class="image-compress-message">检测到当前图片较大，建议压缩后上传以大幅提升传输速度并节省带宽。</p>
-      <div class="image-compress-actions">
-        <button id="image-compress-btn" class="btn btn-primary" type="button">压缩上传 (推荐)</button>
-        <button id="image-original-btn" class="btn btn-secondary" type="button">上传原图</button>
-        <button id="image-cancel-btn" class="btn btn-secondary" type="button">取消</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="remark-modal" class="modal hidden">
-    <div class="modal-content remark-modal-content">
-      <h3 class="modal-title">设置消息备注</h3>
-      <p id="remark-modal-preview" class="remark-modal-preview"></p>
-      <div class="remark-form">
-        <textarea id="remark-input" class="remark-textarea" maxlength="500" placeholder="输入备注信息（如用途、说明、账号等，Ctrl+Enter 快速保存）..." rows="4"></textarea>
-        <div class="remark-counter-row">
-          <span id="remark-char-count" class="remark-char-count">0 / 500</span>
-        </div>
-        <div class="remark-actions">
-          <button id="remark-cancel-btn" class="btn btn-secondary" type="button">取消</button>
-          <button id="remark-clear-btn" class="btn btn-danger hidden" type="button">清除备注</button>
-          <button id="remark-save-btn" class="btn btn-primary" type="button">保存</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="image-viewer" class="image-viewer hidden" role="dialog" aria-modal="true" aria-label="图片预览">
-    <div class="image-viewer-backdrop"></div>
-    <div class="image-viewer-content">
-      <button class="image-viewer-close" title="关闭" type="button">×</button>
-      <img id="image-viewer-img" class="image-viewer-img" alt="大图">
-      <div class="image-viewer-actions">
-        <button id="image-viewer-original" class="btn btn-secondary hidden" type="button">查看原图</button>
-        <button id="image-viewer-copy" class="btn btn-secondary" type="button">复制图片</button>
-      </div>
-      <p class="image-viewer-hint">点击背景或按 ESC 关闭</p>
-    </div>
-  </div>
-
-  <div id="text-viewer" class="text-viewer modal hidden">
-    <div class="text-viewer-backdrop"></div>
-    <div class="text-viewer-container">
-      <div class="text-viewer-header">
-        <div class="text-viewer-title-info">
-          <h3 class="text-viewer-title">文本详情</h3>
-          <span id="text-viewer-meta" class="text-viewer-meta"></span>
-        </div>
-        <button id="text-viewer-close" class="text-viewer-close" title="关闭" type="button">×</button>
-      </div>
-      <div class="text-viewer-body">
-        <div id="text-viewer-content" class="text-viewer-content"></div>
-      </div>
-      <div class="text-viewer-actions">
-        <button id="text-viewer-copy-btn" class="btn btn-primary" type="button">复制全文</button>
-        <button id="text-viewer-close-btn" class="btn btn-secondary" type="button">关闭</button>
-      </div>
-    </div>
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="highlight.js?v=1.7.4"></script>
-  <script src="app.js?v=1.7.4"></script>
 </body>
-
 </html>

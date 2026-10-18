@@ -16,13 +16,16 @@ function setupUploadRoutes(app) {
 
 // 所有 API 路由之后统一返回 JSON 404，便于前端解析错误。
 function apiNotFound(req, res) {
-  res.status(404).json({ error: 'Not Found', path: req.originalUrl });
+  res.status(404).json({ error: 'Not Found' });
 }
 
 // 设置 API 路由
 function setupApiRoutes(app) {
   // 认证路由
-  app.use('/api', authRoutes.router);
+  const authService = app.get('authService');
+  app.use('/api', authService ? authRoutes.createAuthRouter({ authService }) : authRoutes.router);
+  if (app.get('securityRouter')) app.use('/api', app.get('securityRouter'));
+  if (app.get('adminRouter')) app.use('/api', app.get('adminRouter'));
 
   // 消息路由（需要在 /api/messages 路径）
   app.use('/api/messages', apiLimiter, messagesRoutes);
@@ -45,19 +48,33 @@ function setupApiRoutes(app) {
 
 // 设置所有路由
 function setupRoutes(app) {
-  // 静态文件（前端）
+  // 官网是默认入口，认证工作台保留独立入口，避免营销页和应用状态互相干扰。
   const publicPath = path.join(__dirname, '..', '..', 'public');
+  app.get(['/login', '/app'], (req, res) => {
+    res.sendFile(path.join(publicPath, 'app.html'));
+  });
   app.use(express.static(publicPath));
 
   // 上传文件静态路由
   setupUploadRoutes(app);
 
   // JSON 解析中间件
-  app.use(express.json({ limit: '100mb' }));
-  app.use(express.urlencoded({ limit: '100mb', extended: true }));
+  // JSON and form endpoints carry metadata only; file uploads use Multer streams.
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ limit: '1mb', extended: true }));
 
   // API 路由
   setupApiRoutes(app);
+  app.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+    const code = error.code || 'INTERNAL_ERROR';
+    const quotaStatus = code === 'QUOTA_EXCEEDED' || code === 'UPLOAD_TOO_LARGE' ? 413
+      : code === 'DISK_HEADROOM' ? 507
+      : /^(USAGE_|MUTATION_|UPLOAD_POLICY_|ACCOUNT_UNAVAILABLE)/.test(code) ? 503 : null;
+    const status = quotaStatus || error.status || error.statusCode || 500;
+    res.set('Cache-Control', 'no-store');
+    return res.status(status).json({ code, error: status === 413 ? '存储空间或上传大小超限' : status >= 500 ? '服务暂不可用' : '请求无法完成' });
+  });
 
   // 分享功能已禁用：不注册分享页面路由，分享接口由反向代理层直接拒绝
 }

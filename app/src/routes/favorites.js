@@ -1,60 +1,26 @@
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
-const { getUserState, schedulePersist } = require('../storage');
+const { getUserState, commitUserMutation } = require('../storage');
 const { toPublicMessage } = require('../message');
-const { MULTI_USER_MODE } = require('../config');
-
-const router = express.Router();
-
-// 获取收藏列表
+const { trackRouter } = require('../lifecycle');
+const router = trackRouter(express.Router());
 router.get('/', requireAuth, (req, res) => {
-  const userId = req.userId;
-  const state = getUserState(userId);
-  const favorites = state.messages.filter((msg) => msg.favorite);
-  res.json({
-    messages: favorites.map((msg) => toPublicMessage(msg, userId)),
-    total: favorites.length
-  });
+  const favorites = getUserState(req.userId).messages.filter(message => message.favorite);
+  res.json({ messages: favorites.map(message => toPublicMessage(message, req.userId)), total: favorites.length });
 });
-
-// 收藏消息
-router.post('/:id/favorite', requireAuth, (req, res) => {
-  const userId = req.userId;
-  const state = getUserState(userId);
-  const { id } = req.params;
-  const message = state.messages.find((item) => item.id === id);
-  if (!message) {
-    return res.status(404).json({ error: '消息不存在' });
-  }
-
-  message.favorite = true;
-  schedulePersist(userId);
-
-  const publicMessage = toPublicMessage(message, userId);
-
-  req.app.get('io').broadcastFavorite(userId, { id, favorite: true, message: publicMessage });
-
-  return res.json({ success: true, message: publicMessage });
-});
-
-// 取消收藏
-router.delete('/:id/favorite', requireAuth, (req, res) => {
-  const userId = req.userId;
-  const state = getUserState(userId);
-  const { id } = req.params;
-  const message = state.messages.find((item) => item.id === id);
-  if (!message) {
-    return res.status(404).json({ error: '消息不存在' });
-  }
-
-  message.favorite = false;
-  schedulePersist(userId);
-
-  const publicMessage = toPublicMessage(message, userId);
-
-  req.app.get('io').broadcastFavorite(userId, { id, favorite: false, message: publicMessage });
-
-  return res.json({ success: true, message: publicMessage });
-});
-
+function updateFavorite(favorite) {
+  return async (req, res) => {
+    let message;
+    await commitUserMutation(req.userId, candidate => {
+      message = candidate.messages.find(item => item.id === req.params.id);
+      if (!message) throw Object.assign(new Error('Message not found'), { status: 404 });
+      message.favorite = favorite;
+    });
+    const publicMessage = toPublicMessage(message, req.userId);
+    req.app.get('io')?.broadcastFavorite(req.userId, { id: message.id, favorite, message: publicMessage });
+    res.json({ success: true, message: publicMessage });
+  };
+}
+router.post('/:id/favorite', requireAuth, updateFavorite(true));
+router.delete('/:id/favorite', requireAuth, updateFavorite(false));
 module.exports = router;

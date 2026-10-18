@@ -33,6 +33,7 @@ test('拆分后的文件接口保持多用户隔离', async (t) => {
   const url = base + `/api/messages/${id}/file-stream`;
   assert.equal((await fetch(url, { headers: bob })).status, 404);
   assert.equal((await fetch(url + '?userId=alice', { headers: bob })).status, 401);
+  assert.equal((await fetch(url + '?password=alice-test-password')).status, 401);
   const ownFile = await fetch(url, { headers: alice });
   assert.equal(ownFile.status, 200);
   assert.equal(await ownFile.text(), 'alice private file');

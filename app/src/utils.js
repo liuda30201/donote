@@ -2,6 +2,8 @@ const fs = require('fs/promises');
 const path = require('path');
 const { MIME_EXTENSION_MAP, MESSAGE_PAGE_SIZE, MULTI_USER_MODE } = require('./config');
 
+const MAX_DATA_URL_BYTES = 110 * 1024 * 1024;
+
 // 分页大小限制
 function clampPageSize(limit) {
   if (!Number.isFinite(limit)) return MESSAGE_PAGE_SIZE;
@@ -73,7 +75,7 @@ function sanitizeFilename(filename) {
   return filename
     .replace(/[\\/]/g, '_')
     .replace(/\s+/g, ' ')
-    .replace(/[^a-zA-Z0-9._\-\u4e00-\u9fa5 ]/g, '_')
+    .replace(/[^\p{L}\p{N}._\- ]/gu, '_')
     .trim()
     .slice(0, 120) || 'file';
 }
@@ -90,6 +92,10 @@ function decodeDataUrl(dataUrl) {
     throw new Error('invalid data url');
   }
 
+  // Reject oversized input before regex captures or decoding allocate more memory.
+  if (dataUrl.length > MAX_DATA_URL_BYTES || Buffer.byteLength(dataUrl, 'utf8') > MAX_DATA_URL_BYTES) {
+    throw Object.assign(new Error('data url too large'), { code: 'UPLOAD_TOO_LARGE', status: 413 });
+  }
   const matched = dataUrl.match(/^data:([^;,]+)?(;base64)?,([\s\S]+)$/);
   if (!matched) {
     throw new Error('malformed data url');

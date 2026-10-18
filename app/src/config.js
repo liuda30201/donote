@@ -31,8 +31,11 @@ function getAppVersion() {
 
 const APP_VERSION = getAppVersion();
 
-// 多用户模式判断
-const MULTI_USER_MODE = Boolean(ACCESS_PASSWORDS);
+// Accounts mode always isolates JSON/attachments by immutable server-side user ID.
+const AUTH_MODE = process.env.AUTH_MODE || 'legacy';
+if (!['legacy', 'accounts'].includes(AUTH_MODE)) throw new Error('Invalid AUTH_MODE');
+const ACCOUNTS_MODE = AUTH_MODE === 'accounts';
+const MULTI_USER_MODE = ACCOUNTS_MODE || Boolean(ACCESS_PASSWORDS);
 
 // 解析密码映射: userId:password，并校验格式和密码唯一性
 const userPasswordMap = new Map();
@@ -40,7 +43,7 @@ const userIdSet = new Set();
 const passwordSet = new Set();
 const parseErrors = [];
 
-if (MULTI_USER_MODE) {
+if (!ACCOUNTS_MODE && MULTI_USER_MODE) {
   const pairs = ACCESS_PASSWORDS.split(',').map((s) => s.trim()).filter(Boolean);
 
   for (let i = 0; i < pairs.length; i++) {
@@ -120,6 +123,8 @@ const MIME_EXTENSION_MAP = {
 module.exports = {
   // 环境变量
   PORT,
+  AUTH_MODE,
+  ACCOUNTS_MODE,
   ACCESS_PASSWORD,
   ACCESS_PASSWORDS,
   MIGRATE_DEFAULT_USER,

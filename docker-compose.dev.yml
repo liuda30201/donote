@@ -1,0 +1,29 @@
+# Local development profile for macOS + OrbStack.
+# No domain, TLS certificate, Nginx, or host-network exposure is required.
+services:
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    image: web-clipboard-local:dev
+    restart: "no"
+    stop_grace_period: 35s
+    environment:
+      PORT: "3000"
+      STORAGE_ROOT: /app/data
+      ACCESS_PASSWORD: ${ACCESS_PASSWORD:?ACCESS_PASSWORD is required}
+      EXPIRE_HOURS: ${EXPIRE_HOURS:-720}
+      FILE_CLEANUP_INTERVAL_MINUTES: ${FILE_CLEANUP_INTERVAL_MINUTES:-30}
+      MESSAGE_PAGE_SIZE: ${MESSAGE_PAGE_SIZE:-30}
+      SOCKET_SYNC_LIMIT: ${SOCKET_SYNC_LIMIT:-20}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "127.0.0.1:${DEV_PORT:-3000}:3000"
+    volumes:
+      - ${DEV_DATA_DIR:-./.dev-data}:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:3000,path:'/api/version'},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s

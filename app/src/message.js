@@ -10,6 +10,11 @@ function toImageFileUrl(messageId, userId = null) {
 
 // 转换为公开消息格式
 function toPublicMessage(message, userId = null) {
+  if (message && message.sensitive === true) {
+    const { serializeSensitiveText } = require('./security/sensitive');
+    const locked = serializeSensitiveText(message);
+    return { ...locked, timestamp: message.timestamp, favorite: Boolean(message.favorite) };
+  }
   const result = {
     ...message,
     favorite: Boolean(message.favorite),
@@ -48,7 +53,7 @@ function toPublicMessage(message, userId = null) {
     if (content && typeof content === 'object' && typeof content.filePath === 'string') {
       result.content = {
         name: content.name,
-        size: content.size,
+        size: Number.isSafeInteger(content.size) && content.size >= 0 ? content.size : 0,
         mimeType: content.mimeType,
         url: toUploadUrl(content.filePath, userId)
       };

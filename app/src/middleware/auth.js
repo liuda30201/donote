@@ -39,6 +39,8 @@ function resolveCredential(...candidates) {
 
 // 统一的安全性认证中间件
 function requireAuth(req, res, next) {
+  const service = req.app && req.app.get('authService');
+  if (service) return createSessionAuth(service)(req, res, next);
   const headers = req.headers || {};
   const query = req.query || {};
   const body = req.body || {};
@@ -48,7 +50,6 @@ function requireAuth(req, res, next) {
   const password = resolveCredential(
     headers['x-access-password'],
     body.password,
-    query.password,
     readCookie(cookieHeader, 'wc_auth')
   );
   const userId = headers['x-user-id'] || body.userId || query.userId || null;
@@ -85,8 +86,27 @@ function requireAuth(req, res, next) {
   return next();
 }
 
+function createSessionAuth(service) {
+  return (req, res, next) => {
+    try {
+      const authenticated = service.authenticateRequest(req);
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) service.requireCsrf(req, authenticated);
+      res.set('Cache-Control', 'no-store');
+      req.userId = authenticated.user.id;
+      req.auth = authenticated.context;
+      req.authenticated = authenticated;
+      next();
+    } catch (error) {
+      res.set('Cache-Control', 'no-store');
+      const code = Number.isInteger(error.status) ? error.code : 'AUTH_FAILED';
+      res.status(Number.isInteger(error.status) ? error.status : 401).json({ code, error: code });
+    }
+  };
+}
+
 module.exports = {
   requireAuth,
+  createSessionAuth,
   getUserByPassword,
   resolveCredential
 };

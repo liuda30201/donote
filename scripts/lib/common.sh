@@ -12,10 +12,14 @@ resolve_image() {
     printf '%s' "${IMAGE}"
     return 0
   fi
-  local from_compose
+  local from_compose compose_file
+  compose_file="${PROJECT_DIR}/docker-compose.yml"
+  if [ "${AUTH_MODE:-legacy}" = accounts ]; then
+    compose_file="${PROJECT_DIR}/docker-compose.accounts.yml"
+  fi
   from_compose="$(ACCESS_PASSWORD=__config_check__ docker compose \
     --project-directory "${PROJECT_DIR}" --env-file "${PROJECT_DIR}/.env.example" \
-    -f "${PROJECT_DIR}/docker-compose.yml" config --format json \
+    -f "${compose_file}" config --format json \
     | python3 -c "import json,sys; print(json.load(sys.stdin)['services']['app']['image'])")" \
     || die "无法从 Compose 解析应用镜像；请检查配置，或显式设置 IMAGE"
   [ -n "${from_compose}" ] || die "Compose 中未配置应用镜像"

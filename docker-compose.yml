@@ -7,10 +7,12 @@ services:
     build:
       context: ./app
       dockerfile: Dockerfile
-    image: web-clipboard-local:1.6.9-p7   # 本地构建（防闪屏秒开 + 共享Tab + 顶栏卡片缩放微型滑块）
+    image: web-clipboard-local:1.6.9-p8   # 首页重设计：新 landing CSS、WebP 图片、间距优化
     # 回滚：把上面一行改回 web-clipboard-local:1.6.9-p6，然后 docker compose up -d --no-build app
     container_name: wcb-app
     restart: unless-stopped
+    # App drain budget is 25s; Docker must allow it to finish before SIGKILL.
+    stop_grace_period: 35s
     environment:
       - PORT=3000
       - ACCESS_PASSWORD=${ACCESS_PASSWORD:?ACCESS_PASSWORD is required}
@@ -50,6 +52,7 @@ services:
       - "0.0.0.0:80:80"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/security-headers.inc:/etc/nginx/security-headers.inc:ro
       - ./nginx/certs:/etc/nginx/certs:ro
       - ./nginx/www/acme:/var/www/acme:ro   # 必须与 deploy-certs.sh 的 WEBROOT_DIR 一致
     networks:

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'web-clipboard-v1.7.5';
+const CACHE_NAME = 'web-clipboard-v2.4.0';
 // 注意：不要在这里放 /share.html、/share.js。
 // 分享功能在应用层与 nginx 层都已整体禁用（固定返回 404），把这两个路径写进
 // 预缓存列表会让 cache.addAll() 整体失败（它要求每个请求都 2xx），
@@ -6,10 +6,24 @@ const CACHE_NAME = 'web-clipboard-v1.7.5';
 const ASSETS = [
   '/',
   '/index.html',
-  '/style.css',
-  '/app.js',
+  '/landing.css?v=3',
+  '/landing.js?v=1',
+  '/images/workspace-overview.png',
+  '/images/workspace-overview.webp',
+  '/images/collect-paste.png',
+  '/images/collect-paste.webp',
+  '/images/search-preview.png',
+  '/images/search-preview.webp',
+  '/images/across-devices.png',
+  '/images/across-devices.webp',
+  '/app.html',
+  '/offline.html',
+  '/style.css?v=2.1.7',
+  '/app.js?v=2.1.3',
   '/highlight.js',
   '/heic2any.min.js',
+  '/logo.png',
+  '/apple-touch-icon.png',
   '/favicon.svg',
   '/socket.io/socket.io.js'
 ];
@@ -40,9 +54,21 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// Compatibility purge for older workers that cached private responses; current
+// fetch policy never adds these routes. Keep this to remove pre-upgrade entries.
+self.addEventListener('message', e => {
+  if (e.data?.type !== 'CLEAR_PRIVATE_CACHE') return;
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.map(async key => {
+    const cache = await caches.open(key); const requests = await cache.keys();
+    await Promise.all(requests.filter(request => /^\/(api|uploads|socket\.io)\//.test(new URL(request.url).pathname)).map(request => cache.delete(request)));
+  }))));
+});
+
 // 拦截 fetch 请求
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
+
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
 
   // 安全排除：API、大文件上传目录以及 Socket.IO 连接不进行 Service Worker 拦截缓存
   if (
@@ -64,23 +90,32 @@ self.addEventListener('fetch', (e) => {
           }
           return networkResponse;
         })
-        .catch(() => caches.match(e.request))
+        .catch(async () => {
+          const cached = await caches.match(e.request, { ignoreSearch: true });
+          if (cached) return cached;
+          if (['/app', '/app/', '/login', '/login/'].includes(url.pathname)) {
+            return (await caches.match('/app.html')) || Response.error();
+          }
+          return (await caches.match('/offline.html')) || Response.error();
+        })
     );
     return;
   }
 
-  // 静态资产（带版本号的 CSS / JS / 图标等）：缓存优先，后台静默更新
+  // 静态资产（CSS / JS / 图标等）：网络优先，失败或离线时忽略 ?v= 查询参数回退到本地缓存
   e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        fetch(e.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, networkResponse));
-          }
-        }).catch(() => { });
-        return cachedResponse;
-      }
-      return fetch(e.request);
-    })
+    fetch(e.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, responseClone));
+        }
+        return networkResponse;
+      })
+      .catch(() =>
+        caches.match(e.request, { ignoreSearch: true }).then((cachedResponse) => {
+          return cachedResponse || Response.error();
+        })
+      )
   );
 });

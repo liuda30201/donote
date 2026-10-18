@@ -4,13 +4,14 @@ const { SHARE_DIR, SHARE_MAX_EXPIRE_HOURS } = require('./config');
 const { ensureDir, createMessageId } = require('./utils');
 const { getUserState } = require('./storage');
 const { toPublicMessage } = require('./message');
+const argon2 = require('argon2');
 
 // 分享数据结构
 // {
 //   shareId: 'abc123',
 //   messageId: 'xxx',
 //   userId: 'user1',
-//   password: null,           // 可选密码（明文简单校验）
+//   passwordHash: null,       // 可选密码的 Argon2 哈希
 //   expiresAt: timestamp,
 //   createdAt: timestamp,
 //   createdBy: 'user1',
@@ -78,7 +79,7 @@ async function createShare({ messageId, userId, password, expiresHours }) {
     shareId,
     messageId,
     userId,
-    password: password || null,
+    passwordHash: password ? await argon2.hash(password) : null,
     expiresAt,
     createdAt: Date.now(),
     createdBy: userId,
@@ -105,7 +106,7 @@ async function getShareInfo(shareId) {
   // 返回公开信息（不含密码）
   return {
     shareId: share.shareId,
-    hasPassword: Boolean(share.password),
+    hasPassword: Boolean(share.passwordHash || share.password),
     expiresAt: share.expiresAt,
     createdAt: share.createdAt,
     createdBy: share.createdBy,
@@ -127,17 +128,18 @@ async function verifySharePassword(shareId, password) {
     return { success: false, error: '分享已过期' };
   }
 
-  // 无密码保护
-  if (!share.password) {
-    return { success: true };
-  }
+  if (!share.passwordHash && !share.password) return { success: true };
+  if (typeof password !== 'string') return { success: false, error: '密码错误' };
 
-  // 校验密码
-  if (password !== share.password) {
-    return { success: false, error: '密码错误' };
+  // Compatibility with old records: hash their password before checking it.
+  // This only writes when this disabled feature is explicitly used again.
+  if (!share.passwordHash) {
+    share.passwordHash = await argon2.hash(share.password);
+    delete share.password;
+    await saveShare(share);
   }
-
-  return { success: true };
+  const matches = await argon2.verify(share.passwordHash, password);
+  return matches ? { success: true } : { success: false, error: '密码错误' };
 }
 
 // 获取分享消息内容
@@ -153,20 +155,25 @@ async function getShareContent(shareId) {
     return null;
   }
 
+  // Never return stored credentials in public content responses.
+  const { password: _password, passwordHash: _passwordHash, ...publicShare } = share;
+
   // 获取原消息
   const state = getUserState(share.userId);
   const message = state.messages.find((item) => item.id === share.messageId);
   if (!message) {
     // 原消息已被删除
-    return { share, message: null, deleted: true };
+    return { share: publicShare, message: null, deleted: true };
   }
 
   // 更新访问次数
+  // Approximate analytics only: concurrent views may coalesce (sharing is disabled).
   share.viewCount += 1;
   await saveShare(share);
+  publicShare.viewCount = share.viewCount;
 
   return {
-    share,
+    share: publicShare,
     message: toPublicMessage(message, share.userId),
     deleted: false
   };
@@ -293,7 +300,7 @@ async function getShareList(userId = null) {
       shares.push({
         shareId: share.shareId,
         messageId: share.messageId,
-        hasPassword: Boolean(share.password),
+        hasPassword: Boolean(share.passwordHash || share.password),
         expiresAt: share.expiresAt,
         createdAt: share.createdAt,
         viewCount: share.viewCount

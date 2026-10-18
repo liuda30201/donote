@@ -1,0 +1,69 @@
+# Standalone accounts deployment; never merge with the legacy base.
+# docker compose -f docker-compose.accounts.yml up -d
+# Keep both private host key files outside ./data; AUTH is 32 bytes and content keyring is JSON 0600.
+services:
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    image: donote-accounts-local:1.6.8
+    restart: unless-stopped
+    # App drain budget is 25s; Docker must allow it to finish before SIGKILL.
+    stop_grace_period: 35s
+    environment:
+      PORT: "3000"
+      STORAGE_ROOT: /app/data
+      AUTH_MODE: accounts
+      AUTH_ORIGIN: ${AUTH_ORIGIN:?Set exact HTTPS origin for accounts mode}
+      AUTH_KEY_FILE: /run/secrets/donote-auth-key
+      SENSITIVE_KEYRING_FILE: /run/secrets/donote-content-keyring
+      AUTH_KEY_ID: ${AUTH_KEY_ID:-primary}
+      EXPIRE_HOURS: ${EXPIRE_HOURS:-720}
+      FILE_CLEANUP_INTERVAL_MINUTES: ${FILE_CLEANUP_INTERVAL_MINUTES:-30}
+      TZ: Asia/Shanghai
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    volumes:
+      - ./data:/app/data
+      - type: bind
+        source: ${SENSITIVE_KEYRING_HOST_FILE:?Set absolute path to private external content-keyring JSON}
+        target: /run/secrets/donote-content-keyring
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AUTH_KEY_HOST_FILE:?Set absolute path to private external 32-byte key}
+        target: /run/secrets/donote-auth-key
+        read_only: true
+        bind:
+          create_host_path: false
+    expose: ["3000"]
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:3000,path:'/api/version'},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/security-headers.inc:/etc/nginx/security-headers.inc:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./nginx/www/acme:/var/www/acme:ro
+    networks: [internal]
+networks:
+  internal:
+    driver: bridge

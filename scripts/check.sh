@@ -28,7 +28,12 @@ PY
 ACCESS_PASSWORD=__config_check__ docker compose \
   --project-directory "${PROJECT_DIR}" --env-file "${PROJECT_DIR}/.env.example" \
   -f "${PROJECT_DIR}/docker-compose.yml" config --quiet
-log "Compose 配置检查通过"
+log "Production Compose 配置检查通过"
+
+ACCESS_PASSWORD=__config_check__ docker compose \
+  --project-directory "${PROJECT_DIR}" --env-file "${PROJECT_DIR}/.env.example" \
+  -f "${PROJECT_DIR}/docker-compose.dev.yml" config --quiet
+log "Local development Compose 配置检查通过"
 
 if command -v node >/dev/null 2>&1; then
   node "${PROJECT_DIR}/scripts/check-js.js"

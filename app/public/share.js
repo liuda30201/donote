@@ -268,13 +268,11 @@ async function loadShare() {
 
 async function loadShareContent() {
   try {
-    // 构建请求 URL，如果有密码则在查询参数中传递
-    let url = `/api/share/${shareId}/content`;
-    if (verifiedPassword) {
-      url += `?password=${encodeURIComponent(verifiedPassword)}`;
-    }
-
-    const response = await fetch(url);
+    const response = await fetch(`/api/share/${shareId}/content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: verifiedPassword || undefined })
+    });
 
     const data = await response.json();
 

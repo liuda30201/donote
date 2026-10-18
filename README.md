@@ -1,68 +1,139 @@
-# Web Clipboard · 私有跨设备剪贴板
+# Web Clipboard
 
-用于在设备之间传递文本、截图、图片和文件。基于 [aiChenK/web-clipboard](https://github.com/aiChenK/web-clipboard) v1.6.8，包含本地认证、文件访问、历史搜索和卡片布局补丁。
+私有跨设备剪贴板，用于在设备之间同步文本、截图、图片和文件。项目基于 [aiChenK/web-clipboard](https://github.com/aiChenK/web-clipboard) v1.6.8 演进，提供本地开发、传统密码访问和 accounts 多账户部署路径。
 
-默认部署入口为 **https://node.7705.work**。浏览器通过 Nginx 的 HTTPS 入口访问应用；应用的 3000 端口只在 Docker 网络内使用，数据持久化在 `data/`。
+默认开发入口为 `http://127.0.0.1:3000`，面向 MacBook M1 与 OrbStack。开发环境只运行应用容器，不需要域名、SSL 证书或 Nginx，并将数据写入独立的 `.dev-data/`。生产环境通过 Nginx HTTPS 反向代理，持久化数据保存在 `data/`。
+
+## 功能
+
+- 在设备之间实时同步文本、代码片段、截图、图片和文件。
+- 支持搜索、收藏、历史分页、文件下载和受限内容预览。
+- 原生前端，无需前端构建步骤；Socket.IO 用于实时同步。
+- 离线缓存、深浅色模式、响应式瀑布流卡片和卡片密度控制。
+- 两种访问模式：传统单密码模式，以及 SQLite 驱动的 accounts 多账户模式。
+- Accounts 模式支持管理员、设备会话、TOTP、可选邮件验证码、敏感文本保护、配额和审计。
+- 包含数据备份/恢复、账户初始化/迁移和证书管理脚本。
 
 ## 文档入口
 
-| 要做的事 | 文档 |
+| 目标 | 文档 |
 | --- | --- |
-| 部署、启停、密码、备份恢复、证书和排障 | [部署与运维](docs/operations.md) |
 | 修改代码、理解模块、检查和测试 | [开发说明](docs/development.md) |
-| 用户管理、群组分类、定向共享与 2FA 安全规划 | [演进规划方案](docs/feature-planning.md) |
-| 了解本地补丁与上游资料的关系 | [上游来源](docs/upstream/README.local.md) |
-| 查看历史镜像记录 | [镜像记录](docs/deployment-images.txt) |
+| 传统单密码部署、启停、备份恢复、证书和排障 | [部署与运维](docs/operations.md) |
+| 初始化 accounts 管理员或迁移既有数据 | [账户初始化与迁移](docs/account-migration.md) |
+| 配置 accounts 模式的邮件验证码 | [邮件验证码](docs/email-verification.md) |
+| accounts 数据与安全边界 | [多用户数据保护设计](docs/donote-multiuser-data-protection.md) |
+| 项目演进计划 | [功能规划](docs/feature-planning.md) |
+| 本地改动与上游资料的关系 | [上游来源](docs/upstream/README.local.md) |
+| 隔离环境中的发布验收记录 | [发布验证](docs/final-release-validation.md) |
 
 ## 项目结构
 
 ```text
 web-clipboard/
-├── app/                    # 应用源码，也是 Docker 构建上下文
-│   ├── src/                # 后端：配置、存储、路由、中间件、实时通信
-│   ├── public/             # 前端：原生 HTML/CSS/JS，无打包步骤
-│   ├── test/               # 使用临时数据的接口回归测试
-│   ├── server.js           # 服务启动入口
-│   ├── package.json
-│   ├── package-lock.json
-│   └── Dockerfile
-├── docs/                   # 开发、运维和上游参考资料
-├── nginx/                  # 反向代理配置、证书、ACME 挑战目录
-├── scripts/                # 检查、备份、恢复与证书脚本
-│   └── lib/common.sh       # 共享路径、日志、镜像解析
-├── .github/workflows/      # 检查与测试，不发布镜像
-├── docker-compose.yml      # app + nginx 编排
-├── .env.example            # 环境变量模板
-├── LICENSE                 # 保留上游 MIT 许可
-├── .env                    # 本地密码，忽略提交
-├── data/                   # 消息与附件，忽略提交
-└── backup/                 # 备份，忽略提交
+├── app/                        # 应用源码与 Docker 构建上下文
+│   ├── public/                 # 原生 HTML/CSS/JS 前端资源
+│   ├── scripts/                # accounts 初始化、迁移和密钥轮换工具
+│   ├── src/                    # Express、存储、认证、路由与实时通信
+│   ├── test/                   # Node 接口、安全和存储回归测试
+│   ├── Dockerfile
+│   └── package.json
+├── docs/                       # 开发、运维、安全与验收文档
+├── nginx/                      # HTTPS 反向代理、安全响应头和 ACME 目录
+├── scripts/                    # 检查、备份、恢复和证书脚本
+├── docker-compose.dev.yml      # 本机 HTTP 开发
+├── docker-compose.yml          # 传统单密码 HTTPS 部署
+├── docker-compose.accounts.yml # accounts HTTPS 部署
+├── .env.example                # 开发及可选 SMTP 配置模板
+├── .dev-data/                  # 本地开发数据，忽略提交
+├── data/                       # 部署数据，忽略提交
+└── backup/                     # 备份归档，忽略提交
 ```
 
-## 首次部署
+## 本机开发
 
-需要 Docker 和 Docker Compose。配置中的域名为 `node.7705.work`；换域名时按[运维文档](docs/operations.md#域名与入口)调整。
+前提是 OrbStack 的 Docker 引擎正在运行。在仓库根目录执行：
 
 ```bash
 cp .env.example .env
 chmod 600 .env
-# 编辑 .env，将 ACCESS_PASSWORD 改成自己的密码
-./scripts/self-signed-cert.sh
-# 首次启动先生成证书，再构建和启动服务
+# 编辑 .env，设置仅用于开发的 ACCESS_PASSWORD
+# 可选：设置 DEV_PORT=3001 避开已有服务
+
+docker compose -f docker-compose.dev.yml up -d --build
+open http://127.0.0.1:3000
+docker compose -f docker-compose.dev.yml logs -f app
+```
+
+开发容器仅绑定到 `127.0.0.1`，不会暴露至局域网。停止服务但保留数据：
+
+```bash
+docker compose -f docker-compose.dev.yml down
+```
+
+默认开发数据目录为 `.dev-data/`，与生产 `data/` 隔离。确认容器已停止后，才可手动删除 `.dev-data/` 重置开发环境。也可直接使用本机 Node：
+
+```bash
+npm ci --prefix app
+STORAGE_ROOT="$PWD/.dev-data" ACCESS_PASSWORD=development-only PORT=3000 npm --prefix app start
+```
+
+直接运行 Node 不会自动加载根目录 `.env`，请显式传入所需环境变量。
+
+## 部署模式
+
+### 传统单密码模式
+
+`docker-compose.yml` 运行应用与 Nginx。部署需要域名、证书和根目录 `.env` 中的 `ACCESS_PASSWORD`：
+
+```bash
+cp .env.example .env
+chmod 600 .env
+# 编辑 .env，设置强随机 ACCESS_PASSWORD
+./scripts/self-signed-cert.sh  # 首次内网或自签部署
+
 docker compose up -d --build
 docker compose ps
 ```
 
-已有部署无需重新生成证书或迁移数据。目录整理后仍使用原来的 `.env`、`data/` 和 `nginx/` 挂载路径；下次构建自动使用 `app/`。
+正式 HTTPS 证书、域名替换、备份恢复和日常运维请参阅[部署与运维](docs/operations.md)。不要将 `.env`、证书私钥、真实数据或备份提交到 Git。
 
-## 功能与边界
+### Accounts 多账户模式
 
-- **极简全屏剪贴工作台**：100% 视口流式布局，首屏 Anti-FOUC 防闪屏秒开，支持深浅色模式切换。
-- **纯粹剪切板体验**：移除多余上传与繁重附件，聚焦文本、代码片段与剪贴板截图；全局 `Ctrl + V` 原生识别粘贴。
-- **紧凑无空洞瀑布流（Masonry）**：卡片高度完全由内容驱动，彻底消除旧网格大面积留白；支持按“今天/昨天/7天内/月份”时间轴分组。
-- **顶栏内嵌极简搜索**：单行嵌入导航栏，快捷键 `/` 或 `Ctrl+K` 快速聚焦，不占用下方任何垂直展示空间。
-- **卡片大小无级缩放滑块**：顶栏直观微型滑块（200px~650px），自由调整瀑布流列宽与显示密度，本地自动持久记忆。
-- **SWR 离线秒开缓存**：本地快照 0ms 瞬间渲染，后台静默校准与 WebSocket 实时推送。
-- **私有隔离与安全守卫**：全私有数据需要鉴权；支持即将落地的管理员专控用户体系、定向共享收件箱与 TOTP 2FA 防异地泄密。
+`docker-compose.accounts.yml` 是独立部署配置，不能与传统 Compose 合并。它要求：
 
-上游文档中的公开分享、免密码部署等说明不代表本地 Compose 的实际行为。
+1. 使用精确的 HTTPS `AUTH_ORIGIN`。
+2. 在仓库外部准备权限为 `0600` 的原始 32 字节认证密钥和内容密钥环 JSON。
+3. 通过 `AUTH_KEY_HOST_FILE` 和 `SENSITIVE_KEYRING_HOST_FILE` 指向上述绝对路径。
+4. 先在离线状态初始化管理员，并在合成数据目录完成迁移演练。
+
+典型启动命令：
+
+```bash
+node app/scripts/accounts.js init-admin \
+  --data-dir /absolute/private/data --offline-confirmed \
+  < /private/initial-account.json
+
+docker compose -f docker-compose.accounts.yml up -d --build
+```
+
+账户初始化会拒绝弱密码和重复初始化；迁移前必须停写，并先执行 dry-run。完整流程、恢复协议和限制见[账户初始化与迁移](docs/account-migration.md)。SMTP 参数仅在需要邮箱验证码时配置，详见[邮件验证码](docs/email-verification.md)。
+
+## 检查与测试
+
+```bash
+./scripts/check.sh
+npm --prefix app run check
+npm --prefix app test
+```
+
+`npm --prefix app test` 需要先完成 `npm ci --prefix app`。测试使用临时目录，不读取 `.env` 或 `data/`。浏览器图片预览回归和容器验收命令见[开发说明](docs/development.md)与[发布验证](docs/final-release-validation.md)。
+
+## 安全边界
+
+- 根目录 `.env`、密钥、SMTP 密码、证书私钥、用户数据与备份均由 `.gitignore` 排除，不能提交。
+- 传统模式的认证 Cookie 依赖 HTTPS 传输安全；部署时必须配置可信证书。
+- Accounts 模式的认证密钥和内容密钥环不保存在仓库或 `data/` 下，丢失前应按密钥备份流程保护。
+- 生产操作前先备份；数据格式变更、账户迁移和恢复均应先在隔离副本演练。
+
+本项目保留上游 MIT 许可证，详见 [LICENSE](LICENSE)。上游关于公开分享或免密码部署的说明不代表本项目的默认部署行为。

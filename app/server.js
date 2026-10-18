@@ -3,6 +3,7 @@ const path = require('path');
 const {
   PORT,
   MULTI_USER_MODE,
+  ACCOUNTS_MODE,
   MIGRATE_DEFAULT_USER,
   EXPIRE_HOURS,
   STORAGE_ROOT,
@@ -12,7 +13,8 @@ const {
   userIdSet
 } = require('./src/config');
 const { ensureDir } = require('./src/utils');
-const { loadPersistedState, migrateLegacyData, SINGLE_USER_DATA_FILE } = require('./src/storage');
+const { loadPersistedState, migrateLegacyData, SINGLE_USER_DATA_FILE, flushPendingPersist } = require('./src/storage');
+const { createShutdown } = require('./src/shutdown');
 const { cleanupOrphanDiskFiles, cleanupExpiredData, startCleanupSchedulers } = require('./src/cleanup');
 const { createApp } = require('./src/app');
 const { deleteAllShares, SHARE_DIR } = require('./src/share');
@@ -41,13 +43,41 @@ async function checkModeChange() {
 }
 
 async function start() {
+  let shutdownRequested = false;
+  let shutdownReady;
+  let startupStopTimer;
+  const requestShutdown = () => {
+    if (shutdownRequested) return;
+    shutdownRequested = true;
+    // Startup may itself be waiting on I/O. Bound signal handling from receipt.
+    startupStopTimer = setTimeout(() => {
+      console.error('服务初始化期间关闭超时');
+      process.exit(1);
+    }, 25000);
+    shutdownReady?.();
+  };
+  process.once('SIGINT', requestShutdown);
+  process.once('SIGTERM', requestShutdown);
   await ensureDir(STORAGE_ROOT);
+  const security = ACCOUNTS_MODE ? require('./src/security/runtime').createSecurityRuntime({ storageRoot: STORAGE_ROOT }) : null;
 
+  let stopCleanupSchedulers;
+  let application;
+  let quotaRuntime;
+  try {
+  if (ACCOUNTS_MODE) quotaRuntime = require('./src/quota-runtime').configureAccountQuota({ storage: require('./src/storage'), upload: require('./src/upload'), repo: security.repo, storageRoot: STORAGE_ROOT });
   // 检查运行模式变化
   await checkModeChange();
 
   // 多用户模式
-  if (MULTI_USER_MODE) {
+  if (ACCOUNTS_MODE) {
+    const users = security.repo.listActiveUserIds();
+    for (const { id } of users) {
+      const loaded = await loadPersistedState(id, { validateSensitive: security.sensitiveService?.validateRecord, strict: true });
+      if (loaded.status === 'error' || loaded.status === 'corrupt') throw new Error('Account storage could not be safely loaded');
+    }
+    await quotaRuntime.reconcileUsers(users);
+  } else if (MULTI_USER_MODE) {
     // 检查是否需要迁移单用户数据
     if (MIGRATE_DEFAULT_USER) {
       try {
@@ -83,12 +113,35 @@ async function start() {
   }
 
   // 启动清理定时任务
-  startCleanupSchedulers();
+  stopCleanupSchedulers = startCleanupSchedulers();
 
   // 创建应用
-  const { server } = createApp();
+  application = createApp({ authService: security?.authService, securityRouter: security?.securityRouter, adminRouter: security?.adminRouter, sensitiveService: security?.sensitiveService, quotaRuntime });
+  const { server } = application;
+  const drain = createShutdown({
+    closeApp: () => application.close(),
+    stopCleanup: () => stopCleanupSchedulers(),
+    flushPersist: flushPendingPersist,
+    closeSecurity: () => security?.close(),
+    timeoutMs: 25000
+  });
+  const shutdown = () => {
+    drain().then(() => clearTimeout(startupStopTimer)).catch(error => {
+      console.error('服务关闭失败:', error);
+      // Exit unsuccessfully instead of closing resources beneath active work.
+      process.exit(1);
+    });
+  };
+  shutdownReady = shutdown;
+  if (shutdownRequested) {
+    await drain();
+    clearTimeout(startupStopTimer);
+    return;
+  }
 
   // 启动服务器
+  await new Promise((resolve, reject) => {
+  server.once('error', reject);
   server.listen(PORT, () => {
     console.log(`服务器运行在 http://localhost:${PORT}`);
     console.log(`运行模式: ${MULTI_USER_MODE ? '多用户' : '单用户'}`);
@@ -100,7 +153,21 @@ async function start() {
     console.log(`数据过期时间: ${EXPIRE_HOURS} 小时`);
     console.log(`数据存储目录: ${STORAGE_ROOT}`);
     console.log(`孤儿文件清理间隔: ${FILE_CLEANUP_INTERVAL_MINUTES} 分钟`);
+    resolve();
   });
+  });
+  } catch (error) {
+    // Startup failures also release timers and SQLite, after started work drains.
+    await createShutdown({
+      closeApp: () => application?.close(),
+      stopCleanup: () => stopCleanupSchedulers?.(),
+      flushPersist: flushPendingPersist,
+      closeSecurity: () => security?.close(),
+      timeoutMs: 25000
+    })();
+    clearTimeout(startupStopTimer);
+    throw error;
+  }
 }
 
 start().catch((error) => {

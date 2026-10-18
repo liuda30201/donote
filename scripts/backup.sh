@@ -1,110 +1,117 @@
 #!/usr/bin/env bash
 # =============================================================================
-# web-clipboard —— 备份消息记录与附件
+# DoNote O01 — complete JSON/file backup foundation (no restore or DB snapshot).
+# Legacy messages.json, .mode, uploads/, shares/ and all users/ are inventoried;
+# backup-manifest.json records format/version, paths, modes and SHA-256 hashes.
+# Stop ALL writers and cleanup tasks first. Change detection is not a write barrier.
 #
-# 备份内容：
-#   data/messages.json   消息记录（文本/图片/文件的元数据、备注、时间戳）
-#   data/uploads/        全部附件（原图、缩略图、上传文件）
-#   data/shares/         分享数据（功能已禁用，存在则一并备份）
-#
-# 为什么用容器来打包：
-#   附件的实际属主取决于运行容器与历史迁移，普通宿主机用户可能无法读取/删除。
-#   本脚本用同一个应用镜像（tag 见 IMAGE 变量）以 root 身份挂载 data/ 打包，
-#   从而无需 sudo。只读挂载数据目录，不会修改原数据。
-#
-# 一致性保证：
-#   * 应用对 messages.json 采用“先写临时文件再 rename”的原子落盘，且写入带约
-#     500ms 防抖 —— 因此任何时刻读到的 messages.json 都是完整的 JSON。
-#     脚本在打包前会先校验其可解析性，不可解析则重试 5 次。
-#   * 先打包 uploads/ 再打包 messages.json。在线备份期间仍可能发生新增/删除，
-#     因此不是严格时间点快照；需要严格一致性时先 docker compose stop app。
-#   * 打包清单使用 NUL 分隔（find -print0 + tar --null），文件名含换行也不会被拆断。
-#   * 备份期间应用保持运行，不需要停机。
-#
-# 用法：
-#   ./scripts/backup.sh                 # 备份到 ./backup/web-clipboard-<时间戳>.tar.gz
-#   KEEP=30 ./scripts/backup.sh         # 保留最近 30 份（默认 14）
-#
-# 建议定时任务（每天 03:17 备份）：
-#   17 3 * * * /home/liuqiang/workspace/web-clipboard/scripts/backup.sh >> /home/liuqiang/workspace/web-clipboard/backup/backup.log 2>&1
+# Usage: ./scripts/backup.sh              # keep newest 14 successful archives
+#        KEEP=30 ./scripts/backup.sh      # count, not days; positive integer
+# Synthetic fixtures / readable host data only (explicit opt-in, requires Node):
+#        BACKUP_MODE=local DATA_DIR=/tmp/fixture BACKUP_DIR=/tmp/backups ./scripts/backup.sh
+# Default Docker mode retains root access to historical attachment ownership;
+# data and helper are read-only mounts. No app stop/start is performed here.
 # =============================================================================
 set -euo pipefail
-
+umask 077
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
-DATA_DIR="${PROJECT_DIR}/data"
-BACKUP_DIR="${PROJECT_DIR}/backup"
-STAMP="$(date '+%Y%m%d-%H%M%S')"
-ARCHIVE_NAME="web-clipboard-${STAMP}.tar.gz"
-ARCHIVE="${BACKUP_DIR}/${ARCHIVE_NAME}"
+
+DATA_DIR="${DATA_DIR:-${PROJECT_DIR}/data}"
+BACKUP_DIR="${BACKUP_DIR:-${PROJECT_DIR}/backup}"
 KEEP="${KEEP:-14}"
+BACKUP_MODE="${BACKUP_MODE:-docker}"
+HELPER="${PROJECT_DIR}/scripts/lib/backup-data.js"
+ARCHIVE_NAME="web-clipboard-$(date '+%Y%m%d-%H%M%S')-$$.tar.gz"
 
-# ---- 解析实际使用的 app 镜像 ----
-# 优先用显式传入的 IMAGE；否则从 docker compose 的解析结果里读，保证与
-# docker-compose.yml 里 app 服务的镜像 tag 始终一致（硬编码 tag 会在旧镜像被
-# docker image prune 清掉后导致备份直接失败）。
-
-[ -d "${DATA_DIR}" ] || die "数据目录不存在: ${DATA_DIR}"
-
-IMAGE="$(resolve_image)"
-docker image inspect "${IMAGE}" >/dev/null 2>&1 || die "镜像不存在: ${IMAGE}（请先 docker compose build app）"
-
-mkdir -p "${BACKUP_DIR}"
-chmod 700 "${BACKUP_DIR}"
-
-# ---- 1. 校验 messages.json 可解析（原子写入期间可能短暂不可用，重试 5 次）----
-if [ -f "${DATA_DIR}/messages.json" ]; then
-  ok=0
-  for i in 1 2 3 4 5; do
-    if python3 -c "import json,sys; json.load(open(sys.argv[1],encoding='utf-8'))" \
-         "${DATA_DIR}/messages.json" 2>/dev/null; then
-      ok=1; break
-    fi
-    log "messages.json 暂不可解析（第 ${i} 次），1 秒后重试…"
-    sleep 1
-  done
-  [ "${ok}" = "1" ] || die "messages.json 无法解析，已中止备份以免产生损坏的归档"
+[ -f "${HELPER}" ] || die "备份辅助程序不存在: ${HELPER}"
+if [ "${1:-}" = "--accounts-offline-confirmed" ]; then
+  [ "${AUTH_MODE:-}" = accounts ] || die "账户备份必须 AUTH_MODE=accounts"
+  [ "${#}" -eq 1 ] || die "不接受账户备份额外位置参数"
+  KEY_FILE="${AUTH_KEY_FILE:-}"
+  [ -n "${KEY_FILE}" ] || die "账户备份必须指定 AUTH_KEY_FILE"
+  command -v python3 >/dev/null 2>&1 || die "账户备份需要 python3 sqlite3"
+  CONTENT_ARGS=()
+  [ -z "${SENSITIVE_KEYRING_FILE:-}" ] || CONTENT_ARGS+=(--content-keyring "${SENSITIVE_KEYRING_FILE}")
+  exec python3 "${PROJECT_DIR}/scripts/lib/sqlite-backup.py" "${DATA_DIR}" "${BACKUP_DIR}/${ARCHIVE_NAME}" --key "${KEY_FILE}" --key-id "${AUTH_KEY_ID:-primary}" "${CONTENT_ARGS[@]}" --confirmed
 fi
-
-MSG_COUNT="$(python3 -c "
-import json,sys
-try:
-    print(len(json.load(open(sys.argv[1],encoding='utf-8')).get('messages',[])))
-except Exception:
-    print('unknown')
-" "${DATA_DIR}/messages.json" 2>/dev/null || echo unknown)"
-
-# ---- 2. 容器内以 root 打包（先 uploads/ 后 messages.json）----
-log "开始备份 → ${ARCHIVE}"
-
-docker run --rm \
-  -v "${DATA_DIR}:/data:ro" \
-  -v "${BACKUP_DIR}:/backup" \
-  "${IMAGE}" \
-  sh -c '
-    set -e
-    cd /data
-    # 用 NUL 分隔的清单，避免文件名含换行时被 tar 拆成两条路径
-    { [ -d uploads ] && find uploads -type f -print0; } > /tmp/list
-    { [ -d shares ]  && find shares  -type f -print0; } >> /tmp/list
-    [ -f messages.json ] && printf "messages.json\0" >> /tmp/list
-    tar czf "/backup/'"${ARCHIVE_NAME}"'" --null --no-recursion -T /tmp/list
-  '
-
-# ---- 3. 收尾：属主归当前用户、校验归档可读 ----
-docker run --rm -v "${BACKUP_DIR}:/backup" "${IMAGE}" sh -c \
-  "chown $(id -u):$(id -g) '/backup/${ARCHIVE_NAME}' && chmod 600 '/backup/${ARCHIVE_NAME}'" 2>/dev/null \
-  || chmod 600 "${ARCHIVE}"
-
-tar -tzf "${ARCHIVE}" >/dev/null || die "归档校验失败: ${ARCHIVE}"
-SIZE="$(du -h "${ARCHIVE}" | cut -f1)"
-log "备份完成: ${ARCHIVE} (${SIZE}, 消息 ${MSG_COUNT} 条, 归档条目 $(tar -tzf "${ARCHIVE}" | wc -l) 个)"
-
-# ---- 4. 轮转：只保留最近 KEEP 份 ----
-mapfile -t OLD < <(ls -1t "${BACKUP_DIR}"/web-clipboard-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)))
-if [ "${#OLD[@]}" -gt 0 ]; then
-  log "清理 ${#OLD[@]} 个过期备份（保留最近 ${KEEP} 份）"
-  rm -f -- "${OLD[@]}"
+# Never silently publish a JSON-only archive for an accounts database.
+[ "${AUTH_MODE:-legacy}" != accounts ] || die "账户模式 SQLite 备份尚未支持；请使用 --accounts-offline-confirmed"
+for SQLITE_FILE in donote.db donote.db-wal donote.db-shm; do
+  [ ! -e "${DATA_DIR}/${SQLITE_FILE}" ] && [ ! -L "${DATA_DIR}/${SQLITE_FILE}" ] \
+    || die "检测到 SQLite 数据；本工具只支持 legacy，需受控停写与数据库快照"
+done
+if [ -n "${AUTH_KEY_FILE:-}" ]; then
+  python3 - "${DATA_DIR}" "${AUTH_KEY_FILE}" <<'PYKEY'
+import os,sys
+root, key = map(os.path.realpath, sys.argv[1:])
+if os.path.commonpath([root, key]) == root:
+    sys.exit('AUTH_KEY_FILE must remain outside the data backup tree')
+PYKEY
 fi
+command -v python3 >/dev/null 2>&1 || die "需要 python3 校验路径及轮转备份"
+case "${BACKUP_MODE}" in
+  docker)
+    IMAGE="$(resolve_image)"
+    docker image inspect "${IMAGE}" >/dev/null 2>&1 || die "镜像不存在: ${IMAGE}"
+    ;;
+  local) command -v node >/dev/null 2>&1 || die "local 模式需要 node" ;;
+  *) die "BACKUP_MODE 必须为 docker 或 local" ;;
+esac
 
-log "当前备份列表："
-ls -lht "${BACKUP_DIR}"/web-clipboard-*.tar.gz 2>/dev/null | head -"${KEEP}"
+# Validate before chmod, mkdir, packaging, or retention; never write into data.
+python3 - "${DATA_DIR}" "${BACKUP_DIR}" "${KEEP}" <<'PY'
+import os, re, sys
+source, output, keep = sys.argv[1:]
+if not re.fullmatch(r'[1-9][0-9]{0,5}', keep):
+    sys.exit('KEEP must be a positive integer (1..999999)')
+source, output = os.path.realpath(source), os.path.realpath(output)
+if not os.path.isdir(source):
+    sys.exit('Data directory does not exist')
+if os.path.commonpath([source, output]) in (source, output):
+    sys.exit('Data and backup directories must be disjoint')
+os.makedirs(output, mode=0o700, exist_ok=True)
+os.chmod(output, 0o700)
+PY
+DATA_DIR="$(cd "${DATA_DIR}" && pwd -P)"
+BACKUP_DIR="$(cd "${BACKUP_DIR}" && pwd -P)"
+ARCHIVE="${BACKUP_DIR}/${ARCHIVE_NAME}"
+log "开始备份 → ${ARCHIVE}（请先停止全部写入者）"
+
+if [ "${BACKUP_MODE}" = docker ]; then
+  docker run --rm --user 0:0 --network none --entrypoint node \
+    -e BACKUP_UID="$(id -u)" -e BACKUP_GID="$(id -g)" \
+    -v "${DATA_DIR}:/data:ro" \
+    -v "${BACKUP_DIR}:/backup" \
+    -v "${HELPER}:/backup-helper.js:ro" \
+    "${IMAGE}" /backup-helper.js /data "/backup/${ARCHIVE_NAME}"
+else
+  # Avoid inherited ownership overrides when running as an ordinary host user.
+  BACKUP_UID="$(id -u)" BACKUP_GID="$(id -g)" node "${HELPER}" "${DATA_DIR}" "${ARCHIVE}"
+fi
+[ -f "${ARCHIVE}" ] || die "备份程序未生成归档: ${ARCHIVE}"
+
+# Runs only after successful packaging, verification and publication. No shell
+# word splitting or Bash 4 mapfile dependency; only exact regular archive names.
+python3 - "${BACKUP_DIR}" "${ARCHIVE_NAME}" "${KEEP}" <<'PY'
+import os, re, stat, sys
+root, current, keep = sys.argv[1], sys.argv[2], int(sys.argv[3])
+root = os.path.realpath(root)
+pattern = re.compile(r'web-clipboard-[0-9]{8}-[0-9]{6}(?:-[0-9]+)?\.tar\.gz')
+archives = []
+for name in os.listdir(root):
+    if not pattern.fullmatch(name):
+        continue
+    target = os.path.join(root, name)
+    metadata = os.lstat(target)
+    if stat.S_ISREG(metadata.st_mode):
+        archives.append((name, metadata.st_mtime_ns))
+archives.sort(key=lambda item: (item[0] == current, item[1], item[0]), reverse=True)
+for name, _ in archives[keep:]:
+    target = os.path.join(root, name)
+    if os.path.dirname(os.path.realpath(target)) != root or not stat.S_ISREG(os.lstat(target).st_mode):
+        sys.exit('Unsafe retention target; refusing deletion')
+    os.unlink(target)
+    print('Removed expired backup: ' + name)
+print('Retained successful archives: ' + str(min(len(archives), keep)))
+PY
+log "备份完成: ${ARCHIVE}"

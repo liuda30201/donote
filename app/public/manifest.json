@@ -1,11 +1,22 @@
 {
-  "name": "Web Clipboard",
-  "short_name": "Clipboard",
-  "start_url": "/",
+  "name": "DoNote · 跨设备剪贴板",
+  "short_name": "DoNote",
+  "start_url": "/app",
   "display": "standalone",
-  "background_color": "#1a1a1a",
-  "theme_color": "#1a1a1a",
+  "background_color": "#F5F5F7",
+  "theme_color": "#F56314",
   "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
     {
       "src": "/favicon.svg",
       "sizes": "any",

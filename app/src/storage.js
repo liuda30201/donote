@@ -11,7 +11,8 @@ const singleUserState = {
   messages: [],
   lastActivity: Date.now()
 };
-let persistRunning = false;
+let persistTask = null;
+let persistImmediate = null;
 
 // 获取用户数据路径
 function getUserDataDir(userId) {
@@ -65,6 +66,56 @@ function getUserIdByPassword(password) {
   return userPasswordMap.get(password) || null;
 }
 
+// One writer per user. The quota layer can replace the runner, never nest it.
+const mutationTails = new Map();
+let mutationRunner = null;
+let persistencePolicy = null;
+function configurePersistencePolicy(policy) {
+  if (!policy || typeof policy.beforePersist !== 'function' || typeof policy.afterPersist !== 'function') throw new TypeError('Explicit persistence policy required');
+  persistencePolicy = policy;
+}
+function configureMutationRunner(runner) {
+  if (typeof runner !== 'function' || mutationTails.size) throw new Error('Mutation runner must be configured before writes');
+  mutationRunner = runner;
+}
+function withUserMutation(userId, task, options) {
+  if (mutationRunner) return mutationRunner(userId, task, options);
+  const previous = mutationTails.get(userId) || Promise.resolve();
+  const work = previous.catch(() => {}).then(task);
+  const tail = work.finally(() => { if (mutationTails.get(userId) === tail) mutationTails.delete(userId); });
+  tail.catch(() => {}); mutationTails.set(userId, tail);
+  return work;
+}
+async function persistCandidateLocked(userId, candidate) {
+  const dataFile = getDataFile(userId);
+  const tmpFile = `${dataFile}.${require('node:crypto').randomUUID()}.tmp`;
+  await ensureDir(path.dirname(dataFile));
+  if (persistencePolicy) await persistencePolicy.beforePersist(userId, candidate);
+  // tmpFile is a generated sibling of the intended user message file.
+  try {
+    const handle = await fs.open(tmpFile, 'wx', 0o600);
+    try { await handle.writeFile(JSON.stringify(candidate, null, 2)); await handle.sync(); } finally { await handle.close(); }
+    await fs.rename(tmpFile, dataFile);
+  } catch (error) {
+    await fs.unlink(tmpFile).catch(() => {});
+    throw error;
+  }
+  if (persistencePolicy) await persistencePolicy.afterPersist(userId, candidate);
+}
+function commitUserMutation(userId, mutate, options = {}) {
+  return withUserMutation(userId, async () => {
+    const state = getUserState(userId);
+    const previous = structuredClone(state);
+    const candidate = structuredClone(state);
+    const result = await mutate(candidate);
+    candidate.lastActivity = Date.now();
+    await persistCandidateLocked(userId, candidate);
+    state.messages = candidate.messages; state.lastActivity = candidate.lastActivity;
+    if (typeof options.afterCommit === 'function') await options.afterCommit({ userId, previous, candidate, result });
+    return result;
+  }, options);
+}
+
 // 规范化持久化状态
 function normalizePersistedState(state) {
   if (!state || typeof state !== 'object') {
@@ -80,7 +131,9 @@ function normalizePersistedState(state) {
       if (!Number.isFinite(message.timestamp)) return null;
       if (!['text', 'image', 'file'].includes(message.type)) return null;
       message.favorite = Boolean(message.favorite);
-      message.remark = typeof message.remark === 'string' ? message.remark : '';
+      if (message.sensitive === true) {
+        if (message.type !== 'text' || message.content !== null || message.remark !== '' || !message.encryptedPayload || typeof message.encryptedPayload !== 'object') throw new Error('Invalid sensitive record');
+      } else message.remark = typeof message.remark === 'string' ? message.remark : '';
       return message;
     })
     .filter(Boolean);
@@ -105,7 +158,7 @@ function normalizePersistedState(state) {
 //               这里的做法是先把损坏文件改名备份（不删除），再以空数据继续，
 //               保证现场可查、可手工修复。
 //   其他 IO 错误 -> 保守处理：不改动内存状态，避免把已有数据写没。
-async function loadPersistedState(userId = null) {
+async function loadPersistedState(userId = null, { validateSensitive, strict = false } = {}) {
   const dataFile = getDataFile(userId);
 
   let raw;
@@ -117,13 +170,26 @@ async function loadPersistedState(userId = null) {
       return { status: 'missing', messages: 0 };
     }
     console.error(`读取持久化数据失败（保留内存现状，不做清空）: ${dataFile}`, error);
+    if (strict) throw error;
     return { status: 'error', messages: 0 };
   }
 
   let normalized;
   try {
-    normalized = normalizePersistedState(JSON.parse(raw));
+    const decoded = JSON.parse(raw);
+    if (Array.isArray(decoded?.messages)) {
+      for (const record of decoded.messages) if (record?.sensitive === true) {
+        if (typeof validateSensitive !== 'function') throw Object.assign(new Error('Sensitive records require a configured content keyring'), { sensitiveFailure: true });
+        try { validateSensitive(record, MULTI_USER_MODE ? userId : 'legacy'); } catch { throw Object.assign(new Error('Sensitive data authentication failed; storage was not modified'), { sensitiveFailure: true }); }
+      }
+    }
+    normalized = normalizePersistedState(decoded);
+    for (const record of normalized.messages) if (record.sensitive === true) {
+      if (typeof validateSensitive !== 'function') throw new Error('Sensitive records require a configured content keyring');
+      validateSensitive(record, MULTI_USER_MODE ? userId : 'legacy');
+    }
   } catch (error) {
+    if (error.sensitiveFailure || strict) throw error;
     const corruptPath = `${dataFile}.corrupt-${Date.now()}`;
     let backedUp = false;
     try {
@@ -138,6 +204,7 @@ async function loadPersistedState(userId = null) {
       error
     );
 
+    if (strict) throw error;
     if (!MULTI_USER_MODE) {
       singleUserState.messages = [];
       singleUserState.lastActivity = Date.now();
@@ -164,24 +231,7 @@ async function loadPersistedState(userId = null) {
 
 // 持久化状态
 async function persistState(userId = null) {
-  const state = getUserState(userId);
-  const dataFile = getDataFile(userId);
-
-  const payload = JSON.stringify(
-    {
-      messages: state.messages,
-      lastActivity: state.lastActivity
-    },
-    null,
-    2
-  );
-
-  const dataDir = path.dirname(dataFile);
-  const tmpFile = `${dataFile}.tmp`;
-
-  await ensureDir(dataDir);
-  await fs.writeFile(tmpFile, payload, 'utf8');
-  await fs.rename(tmpFile, dataFile);
+  return withUserMutation(userId, () => persistCandidateLocked(userId, getUserState(userId)));
 }
 
 // 迁移单用户数据到指定用户
@@ -240,36 +290,50 @@ const pendingPersist = new Set();
 
 function schedulePersist(userId = null) {
   pendingPersist.add(userId);
-  if (persistRunning) return;
-
-  setImmediate(async () => {
-    if (pendingPersist.size === 0 || persistRunning) return;
-    persistRunning = true;
-
-    try {
-      // 先快照再清空：写入期间新产生的变更会重新进入 pending，由finally 里的
-      // 二次调度负责，不会丢。
-      const targets = [...pendingPersist];
-      pendingPersist.clear();
-
-      for (const uid of targets) {
-        await persistState(uid).catch((error) => {
-          // 单个用户写失败不影响其余用户，但必须把该用户放回待写集合重试，
-          // 否则这次失败会被静默吞掉、直到下一次变更才可能落盘。
-          pendingPersist.add(uid);
-          console.error(`持久化失败 (用户 ${uid || '单用户'}):`, error);
-        });
-      }
-    } finally {
-      persistRunning = false;
-      if (pendingPersist.size > 0) schedulePersist(pendingPersist.values().next().value);
-    }
+  if (persistTask || persistImmediate !== null) return;
+  persistImmediate = setImmediate(() => {
+    persistImmediate = null;
+    // Failure stays dirty. Retry only on a new schedule or an explicit flush,
+    // never in an unbounded immediate loop when storage remains unavailable.
+    flushPendingPersist().catch((error) => console.error('持久化失败，待写状态保留:', error));
   });
 }
 
-// 检查是否存在待写任务（供优雅退出时 flush 使用）
+function flushPendingPersist() {
+  if (persistImmediate !== null) {
+    clearImmediate(persistImmediate);
+    persistImmediate = null;
+  }
+  if (persistTask) return persistTask;
+  if (pendingPersist.size === 0) return Promise.resolve();
+
+  // Defer the drain until persistTask is assigned so concurrent callers share it.
+  persistTask = Promise.resolve().then(async () => {
+    while (pendingPersist.size > 0) {
+      const targets = [...pendingPersist];
+      pendingPersist.clear();
+      const errors = [];
+      for (const uid of targets) {
+        try {
+          await persistState(uid);
+        } catch (error) {
+          pendingPersist.add(uid);
+          errors.push(error);
+        }
+      }
+      // Finish this batch for other users, but do not retry a failed write here.
+      if (errors.length) throw new AggregateError(errors, '持久化失败，待写状态保留');
+      // Changes scheduled during IO are already in pendingPersist for the next pass.
+    }
+  }).finally(() => {
+    persistTask = null;
+  });
+  return persistTask;
+}
+
+// True for pending, scheduled, or currently running persistence.
 function hasPendingPersist() {
-  return pendingPersist.size > 0 || persistRunning;
+  return pendingPersist.size > 0 || persistTask !== null || persistImmediate !== null;
 }
 
 
@@ -310,6 +374,7 @@ function searchMessages({ q, type, from, to, before, limit, userId = null }) {
     if (Number.isFinite(to) && item.timestamp >= to) return false;
 
     if (!keyword) return true;
+    if (item.sensitive === true) return false;
 
     const haystacks = [];
     if (item.type === 'text') {
@@ -339,8 +404,9 @@ function searchMessages({ q, type, from, to, before, limit, userId = null }) {
 }
 
 module.exports = {
-  // 状态变量
-  userStates,
+  // Query loaded state without exposing the mutable registry.
+  hasUserState: userId => userStates.has(userId),
+  listLoadedUserIds: () => [...userStates.keys()],
 
   // 目录路径函数
   getUserDataDir,
@@ -360,7 +426,13 @@ module.exports = {
   persistState,
   migrateLegacyData,
   schedulePersist,
+  flushPendingPersist,
   hasPendingPersist,
+  configureMutationRunner,
+  configurePersistencePolicy,
+  withUserMutation,
+  commitUserMutation,
+  persistCandidateLocked,
 
   // 分页函数
   getMessagesPage,
