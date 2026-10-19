@@ -22,25 +22,25 @@ async function fixture(t) {
   const mailer = { available: true, async sendCode(m) { sent.push(m); } };
   const email = createEmailVerification({ repo, authService: service, mailer, encryptionKey: key, now: () => at });
   service.setEmailVerification(email);
-  const body = { username: 'new-user', password: 'strong-password-2026', email: 'person@example.com' };
+  const body = { password: 'Strong-password-2026!', email: 'person@example.com' };
   const req = body => ({ body, ip: '127.0.0.1', headers: { origin: 'https://test.local' } });
   return { db, repo, service, email, mailer, sent, body, req, tick: (ms = 61000) => at += ms };
 }
 test('public registration verifies email before creating an ordinary password-only account; replay fails', async t => {
   const f = await fixture(t);
   const staged = await f.email.startRegistration(f.req(f.body));
-  assert.equal(f.repo.findUserByUsername('new-user'), null);
+  assert.equal(f.repo.findUserByEmail(f.body.email), null);
   assert.equal(JSON.stringify(staged).includes(f.sent[0].code), false);
   const stored = f.db.prepare('SELECT * FROM registration_challenges').get();
   assert.notEqual(stored.code_hash, f.sent[0].code);
   assert.notEqual(stored.password_hash, f.body.password);
   assert.equal(f.email.completeRegistration(f.req({ challenge: staged.challenge, code: f.sent[0].code })).success, true);
   assert.throws(() => f.email.completeRegistration(f.req({ challenge: staged.challenge, code: f.sent[0].code })));
-  const user = f.repo.findUserByUsername('new-user');
+  const user = f.repo.findUserByEmail(f.body.email);
   assert.equal(user.role, 'user');
   assert.equal(f.repo.email.preference(user.id).method, 'password');
   assert.equal(f.repo.email.preference(user.id).email, f.body.email);
-  assert.ok((await f.service.login(f.req(f.body))).token);
+  assert.ok((await f.service.login(f.req({ email: f.body.email, password: f.body.password }))).token);
 });
 test('registration enforces origin, password policy, expiry, five malformed attempts, and delivery failure', async t => {
   const f = await fixture(t);
@@ -55,19 +55,19 @@ test('registration enforces origin, password policy, expiry, five malformed atte
   assert.throws(() => f.email.completeRegistration(f.req({ challenge: second.challenge, code: f.sent.at(-1).code })));
   f.mailer.sendCode = async () => { throw new Error('smtp'); };
   await assert.rejects(f.email.startRegistration(f.req(f.body)), { code: 'MAIL_UNAVAILABLE' });
-  assert.equal(f.repo.findUserByUsername('new-user'), null);
+  assert.equal(f.repo.findUserByEmail(f.body.email), null);
 });
 test('duplicate identity is generic, cannot replace passwords, and concurrent starts are bounded', async t => {
   const f = await fixture(t);
   const first = await f.email.startRegistration(f.req(f.body));
   f.email.completeRegistration(f.req({ challenge: first.challenge, code: f.sent[0].code }));
   f.tick();
-  const second = await f.email.startRegistration(f.req({ ...f.body, password: 'replacement-password-2026' }));
+  const second = await f.email.startRegistration(f.req({ ...f.body, password: 'Replacement-password-2026!' }));
   assert.equal(f.email.completeRegistration(f.req({ challenge: second.challenge, code: f.sent.at(-1).code })).success, true);
-  assert.ok((await f.service.login(f.req(f.body))).token);
-  await assert.rejects(f.service.login(f.req({ ...f.body, password: 'replacement-password-2026' })));
+  assert.ok((await f.service.login(f.req({ email: f.body.email, password: f.body.password }))).token);
+  await assert.rejects(f.service.login(f.req({ email: f.body.email, password: 'Replacement-password-2026!' })));
   f.tick();
-  const results = await Promise.allSettled([1, 2, 3].map(i => f.email.startRegistration(f.req({ ...f.body, username: `new-${i}`, email: `person${i}@example.com` }))));
+  const results = await Promise.allSettled([1, 2, 3].map(i => f.email.startRegistration(f.req({ ...f.body, email: `person${i}@example.com` }))));
   assert.equal(results.filter(r => r.status === 'rejected' && r.reason.code === 'AUTH_BUSY').length, 1);
 });
 test('registration transaction rolls back account and consumption if audit fails; resend invalidates old code', async t => {
@@ -80,7 +80,7 @@ test('registration transaction rolls back account and consumption if audit fails
   const audit = f.repo.addAudit;
   f.repo.addAudit = () => { throw new Error('audit unavailable'); };
   assert.throws(() => f.email.completeRegistration(f.req({ challenge: next.challenge, code: f.sent[1].code })));
-  assert.equal(f.repo.findUserByUsername(f.body.username), null);
+  assert.equal(f.repo.findUserByEmail(f.body.email), null);
   assert.ok(f.repo.email.findRegistration(next.challenge, next.expiresAt - 1));
   f.repo.addAudit = audit;
   assert.equal(f.email.completeRegistration(f.req({ challenge: next.challenge, code: f.sent[1].code })).success, true);

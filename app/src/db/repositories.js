@@ -36,16 +36,30 @@ function ensureTimeWindow(createdAt, expiresAt) { if (!Number.isSafeInteger(expi
 
 function createRepositories(db) {
   const tx = db.transaction((fn) => fn()).immediate;
-  function createUser({ id = randomUUID(), username, displayName, passwordHash, role = 'user', mustChangePassword = false, storageQuotaBytes = 0, at = Date.now() }) {
+  const emailLogin = Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE name='legacy_login_names'").get());
+  function createUser({ id = randomUUID(), username, displayName, passwordHash, role = 'user', mustChangePassword = false, storageQuotaBytes = 0, emailAccount = false, at = Date.now() }) {
     if (typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new TypeError('id must be a UUID');
-    username = normalizeUsername(username); required(displayName, 'displayName'); required(passwordHash, 'passwordHash');
+    username = emailAccount && emailLogin ? required(username, 'username').trim().toLowerCase() : normalizeUsername(username);
+    if (emailAccount && (username.length > 64 || !username)) throw new TypeError('Invalid email prefix');
+    required(displayName, 'displayName'); required(passwordHash, 'passwordHash');
     if (!['user', 'admin'].includes(role)) throw new TypeError('invalid role');
-    db.prepare(`INSERT INTO users (id,username,display_name,password_hash,role,must_change_password,created_at,updated_at,storage_quota_bytes) VALUES (?,?,?,?,?,?,?,?,?)`)
-      .run(id, username.trim(), displayName, passwordHash, role, mustChangePassword ? 1 : 0, at, at, storageQuotaBytes);
-    return findUserById(id);
+    return tx(() => {
+      db.prepare(`INSERT INTO users (id,username,display_name,password_hash,role,must_change_password,created_at,updated_at,storage_quota_bytes) VALUES (?,?,?,?,?,?,?,?,?)`)
+        .run(id, username, displayName, passwordHash, role, mustChangePassword ? 1 : 0, at, at, storageQuotaBytes);
+      if (emailLogin && !emailAccount) db.prepare('INSERT INTO legacy_login_names(username,user_id) VALUES (?,?)').run(username,id);
+      return findUserById(id);
+    });
   }
   function findUserById(id) { return db.prepare('SELECT * FROM users WHERE id = ?').get(assertId(id, 'id')) || null; }
-  function findUserByUsername(username) { return db.prepare('SELECT * FROM users WHERE username = ? AND deleted_at IS NULL').get(normalizeUsername(username)) || null; }
+  function findUserByUsername(username) {
+    username = normalizeUsername(username);
+    if (emailLogin) return db.prepare('SELECT u.* FROM users u JOIN legacy_login_names l ON l.user_id=u.id WHERE l.username=? AND u.deleted_at IS NULL').get(username) || null;
+    return db.prepare('SELECT * FROM users WHERE username=? AND deleted_at IS NULL').get(username) || null;
+  }
+  function findUserByEmail(email) {
+    if (typeof email !== 'string' || !email.trim()) return null;
+    return db.prepare(`SELECT u.* FROM users u JOIN verification_preferences v ON v.user_id=u.id WHERE v.email = ? COLLATE NOCASE AND v.email_verified_at IS NOT NULL AND u.deleted_at IS NULL LIMIT 1`).get(email.trim().toLowerCase()) || null;
+  }
   function listActiveUserIds() { return db.prepare('SELECT id FROM users WHERE deleted_at IS NULL').all(); }
   function listUsers({ limit = 50, before = null } = {}) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new RangeError('limit must be between 1 and 100');
@@ -207,6 +221,6 @@ function createRepositories(db) {
       return {result};
     });
   }
-  return { email: require('./email-repository').createEmailRepository(db), createUser, listUsers, setStorageUsage, findMigrationAudit, findUserById, findUserByUsername, listActiveUserIds, countActiveAdmins, changePassword, setDisabled, setRole, createSession, findSessionByToken, findSessionById, activeSession, promoteSession, revokeSession, revokeOtherSessions, revokeAllSessions, listSessions, touchSession, createOperationGrant, withOperationGrant, createLoginChallenge, findLoginChallenge, recordChallengeFailure, expireFactorSetupChallenges, withLoginChallenge, addRecoveryCodes, consumeRecoveryCode, completeRecovery, getTotpCredential, setPendingTotp, withTotpCounter, setLoginPolicy, clearTotp, addAudit, listAudit };
+  return { email: require('./email-repository').createEmailRepository(db), createUser, listUsers, setStorageUsage, findMigrationAudit, findUserById, findUserByUsername, findUserByEmail, listActiveUserIds, countActiveAdmins, changePassword, setDisabled, setRole, createSession, findSessionByToken, findSessionById, activeSession, promoteSession, revokeSession, revokeOtherSessions, revokeAllSessions, listSessions, touchSession, createOperationGrant, withOperationGrant, createLoginChallenge, findLoginChallenge, recordChallengeFailure, expireFactorSetupChallenges, withLoginChallenge, addRecoveryCodes, consumeRecoveryCode, completeRecovery, getTotpCredential, setPendingTotp, withTotpCounter, setLoginPolicy, clearTotp, addAudit, listAudit };
 }
 module.exports = { createRepositories, hash };

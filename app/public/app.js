@@ -2308,6 +2308,9 @@ function setRegistrationMode(enabled) {
   document.getElementById('registration-toggle')?.classList.toggle('hidden', !registrationAvailable);
   document.getElementById('registration-toggle').textContent = registrationMode ? '返回登录' : '创建账户';
   authBtn.textContent = registrationMode ? (registrationChallenge ? '确认邮箱并创建账户' : '发送验证码') : '进入工作台';
+  document.getElementById('username-label')?.classList.toggle('hidden', registrationMode);
+  document.getElementById('username-input')?.classList.toggle('hidden', registrationMode);
+  document.getElementById('password-help')?.classList.toggle('hidden', !registrationMode);
   document.getElementById('account-options')?.classList.toggle('hidden', registrationMode || currentMode !== 'accounts');
   document.getElementById('account-factor-fields')?.classList.add('hidden');
   if (!registrationMode) {
@@ -2819,13 +2822,16 @@ async function loadOlderMessages() {
   }
 }
 
+function accountIdentifierPayload(identifier) {
+  return identifier.includes('@') ? { email: identifier } : { username: identifier };
+}
 function resetAccountLogin(preserveSelfSecurityOp = false) {
   if (preserveSelfSecurityOp !== true) cancelSelfSecurityDelivery();
   clearEnrollment(); enrollmentPending = false;
   accountEpoch += 1; accountStage = 'login'; accountChallenge = null;
   setRegistrationMode(false);
-  for (const id of ['username-input', 'password-input', 'registration-email', 'registration-display-name', 'registration-code']) document.getElementById(id).disabled = false;
-  for (const id of ['registration-email', 'registration-display-name', 'registration-code']) document.getElementById(id).value = '';
+  for (const id of ['username-input', 'password-input', 'registration-email', 'registration-code']) document.getElementById(id).disabled = false;
+  for (const id of ['registration-email', 'registration-code']) document.getElementById(id).value = '';
   passwordInput.autocomplete = 'current-password';
   passwordInput.placeholder = '输入密码';
   authBtn.disabled = false;
@@ -2838,8 +2844,9 @@ document.getElementById('account-reset-btn')?.addEventListener('click', resetAcc
 document.getElementById('account-recovery-btn')?.addEventListener('click', async () => {
   const epoch = accountEpoch;
   if (currentMode !== 'accounts') return;
+  const identifier = document.getElementById('username-input').value.trim();
   try {
-    const response = await sessionFetch('/api/auth/recovery/start', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('username-input').value.trim(), password: passwordInput.value, recoveryCode: document.getElementById('account-recovery-code').value.trim() }) });
+    const response = await sessionFetch('/api/auth/recovery/start', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...accountIdentifierPayload(identifier), password: passwordInput.value, recoveryCode: document.getElementById('account-recovery-code').value.trim() }) });
     const data = await response.json(); if (epoch !== accountEpoch) return; if (!response.ok) throw new Error(data.error || '恢复失败');
     document.getElementById('account-recovery-code').value = '';
     accountStage = 'setup'; accountChallenge = data.challenge;
@@ -3073,9 +3080,9 @@ document.getElementById('registration-toggle').addEventListener('click', () => {
   resetAccountLogin();
   setRegistrationMode(enabled);
   passwordInput.autocomplete = enabled ? 'new-password' : 'current-password';
-  passwordInput.placeholder = enabled ? '至少 12 个字符' : '输入密码';
+  passwordInput.placeholder = enabled ? '至少 8 位，含大小写、数字和特殊字符' : '输入密码';
 });
-for (const id of ['username-input', 'password-input', 'registration-email', 'registration-display-name']) {
+for (const id of ['username-input', 'password-input', 'registration-email']) {
   document.getElementById(id).addEventListener('input', () => {
     if (!registrationMode) return;
     registrationChallenge = null;
@@ -3085,21 +3092,20 @@ for (const id of ['username-input', 'password-input', 'registration-email', 'reg
 async function registerAccount() {
   const epoch = accountEpoch;
   if (authBtn.disabled) return;
-  const username = document.getElementById('username-input').value.trim();
   const email = document.getElementById('registration-email');
   if (!registrationChallenge && (!email.value.trim() || !email.reportValidity())) return;
   const body = registrationChallenge
     ? { challenge: registrationChallenge, code: document.getElementById('registration-code').value.trim() }
-    : { username, password: passwordInput.value, email: email.value.trim(), displayName: document.getElementById('registration-display-name').value.trim() || username };
+    : { password: passwordInput.value, email: email.value.trim() };
   authBtn.disabled = true;
-  const fields = ['username-input', 'password-input', 'registration-email', 'registration-display-name', 'registration-code'].map(id => document.getElementById(id));
+  const fields = ['password-input', 'registration-email', 'registration-code'].map(id => document.getElementById(id));
   fields.forEach(field => { field.disabled = true; });
   try {
     const response = await sessionFetch(`/api/auth/register/${registrationChallenge ? 'confirm' : 'start'}`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await response.json();
     if (epoch !== accountEpoch) return;
     if (!response.ok) {
-      const errors = { PASSWORD_POLICY: '密码至少需要 12 个字符，最多 1024 字节', INVALID_REGISTRATION: '用户名需为 3–64 位字母、数字、点、下划线或短横线', INVALID_EMAIL: '请输入有效邮箱', MAIL_UNAVAILABLE: '邮件服务暂不可用，请稍后重试', REGISTRATION_RATE_LIMIT: '发送过于频繁，请至少一分钟后重试', AUTH_RATE_LIMIT: '请求过于频繁，请稍后重试', AUTH_BUSY: '服务繁忙，请稍后重试', AUTH_FAILED: '验证码无效或已过期，请返回登录后重新注册' };
+      const errors = { PASSWORD_POLICY: '密码至少需要 8 位，并包含大写字母、小写字母、数字和 ASCII 标点，且不能包含邮箱前缀', INVALID_REGISTRATION: '注册信息无效，请检查邮箱和密码', INVALID_EMAIL: '请输入有效邮箱', MAIL_UNAVAILABLE: '邮件服务暂不可用，请稍后重试', REGISTRATION_RATE_LIMIT: '发送过于频繁，请至少一分钟后重试', AUTH_RATE_LIMIT: '请求过于频繁，请稍后重试', AUTH_BUSY: '服务繁忙，请稍后重试', AUTH_FAILED: '验证码无效或已过期，请返回登录后重新注册' };
       throw new Error(errors[data.code] || '注册未完成，请稍后重试');
     }
     if (!registrationChallenge) {
@@ -3112,7 +3118,7 @@ async function registerAccount() {
     } else {
       resetAccountLogin();
       const result = document.getElementById('account-recovery-result');
-      result.textContent = '邮箱验证完成。若账户信息可用，账户已创建，请使用用户名和密码登录；无法登录时请更换用户名或邮箱重试。';
+      result.textContent = '邮箱验证完成。若账户信息可用，账户已创建，请使用邮箱和密码登录。';
       result.classList.remove('hidden');
     }
   } catch (error) {
@@ -3129,12 +3135,12 @@ async function verifyAccount() {
   if (registrationMode) return registerAccount();
   cancelSelfSecurityDelivery();
   const epoch = accountEpoch;
-  const username = document.getElementById('username-input')?.value.trim(); const password = passwordInput?.value || '';
+  const identifier = document.getElementById('username-input')?.value.trim(); const password = passwordInput?.value || '';
   const code = document.getElementById('account-code')?.value.trim();
-  const body = accountChallenge ? { challenge: accountChallenge } : { username, password, ephemeral: Boolean(document.getElementById('account-ephemeral')?.checked) };
+  const body = accountChallenge ? { challenge: accountChallenge } : { ...accountIdentifierPayload(identifier), password, ephemeral: Boolean(document.getElementById('account-ephemeral')?.checked) };
   if (accountChallenge) { body.code = code; body.newPassword = document.getElementById('account-new-password')?.value || ''; }
-  if (accountStage === 'setup' && !verificationField('account-new-password').classList.contains('hidden') && (body.newPassword.length < 12 || new TextEncoder().encode(body.newPassword).length > 1024)) {
-    authError.textContent = '新密码至少需要 12 个字符，且 UTF-8 编码不超过 1024 字节'; authError.classList.remove('hidden'); return;
+  if (accountStage === 'setup' && !verificationField('account-new-password').classList.contains('hidden') && (body.newPassword.length < 8 || new TextEncoder().encode(body.newPassword).length > 1024)) {
+    authError.textContent = '新密码至少需要 8 位，并包含大写字母、小写字母、数字和特殊字符'; authError.classList.remove('hidden'); return;
   }
   const route = accountChallenge ? (accountStage === 'mfa' ? '/api/auth/login/verify' : '/api/auth/setup/complete') : '/api/auth/login';
   const resultEl = document.getElementById('account-recovery-result'); if (resultEl) { resultEl.textContent = ''; resultEl.classList.add('hidden'); }

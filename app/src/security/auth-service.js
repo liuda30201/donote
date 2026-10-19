@@ -93,10 +93,10 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
   async function login(req) {
     origin(req);
     const body = req.body || {};
-    const username = typeof body.username === 'string' ? body.username.trim().toLowerCase().slice(0, 65) : '';
-    limit(req, username);
+    const identifier = typeof body.email === 'string' ? body.email.trim().toLowerCase().slice(0, 255) : (typeof body.username === 'string' ? body.username.trim().toLowerCase().slice(0, 65) : '');
+    limit(req, identifier);
     let user = null;
-    try { user = repo.findUserByUsername(username); } catch { /* Invalid names follow the same password path. */ }
+    try { user = body.email ? repo.findUserByEmail(identifier) : repo.findUserByUsername(identifier); } catch { /* Invalid identifiers follow the same password path. */ }
     const valid = await passwordWork(body.password, user?.password_hash);
     if (!valid || !user || user.disabled_at != null || user.deleted_at != null) { audit('login.failed', user?.id, req); throw fail(); }
     const fresh = repo.findUserById(user.id);
@@ -251,8 +251,8 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
     if (payload.requirePassword) {
       if (workers >= maxPasswordConcurrency) throw new AuthError(503, 'AUTH_BUSY');
       workers += 1;
-      try { passwordHash = await p.hashPassword(body.newPassword); }
-      catch { repo.recordChallengeFailure(body.challenge, now()); throw new AuthError(400, 'PASSWORD_POLICY', '新密码至少需要 12 个字符，且 UTF-8 编码不超过 1024 字节'); }
+      try { p.validateNewPassword(body.newPassword); passwordHash = await p.hashPassword(body.newPassword); }
+      catch { repo.recordChallengeFailure(body.challenge, now()); throw new AuthError(400, 'PASSWORD_POLICY', '新密码至少需要 8 个字符，且包含大小写字母、数字和特殊字符'); }
       finally { workers -= 1; }
     }
     let counter = null;
@@ -278,9 +278,9 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
   }
   async function startRecovery(req) {
     origin(req); const body = req.body || {};
-    const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
-    limit(req, `recovery:${username}`);
-    let user; try { user = repo.findUserByUsername(username); } catch { /* Uniform failure below. */ }
+    const identifier = typeof body.email === 'string' ? body.email.trim().toLowerCase() : (typeof body.username === 'string' ? body.username.trim().toLowerCase() : '');
+    limit(req, `recovery:${identifier}`);
+    let user; try { user = body.email ? repo.findUserByEmail(identifier) : repo.findUserByUsername(identifier); } catch { /* Uniform failure below. */ }
     const valid = await passwordWork(body.password, user?.password_hash);
     const fresh = user && repo.findUserById(user.id);
     if (!valid || !fresh || fresh.security_version !== user.security_version || fresh.password_hash !== user.password_hash || fresh.disabled_at != null || fresh.deleted_at != null || typeof body.recoveryCode !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{8}){3}$/.test(body.recoveryCode)) throw fail();

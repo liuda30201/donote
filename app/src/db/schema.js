@@ -169,5 +169,43 @@ const REGISTRATION_MIGRATION = {
     CREATE INDEX registration_challenges_source ON registration_challenges(source_hash, created_at);
   `
 };
-const ACCOUNT_MIGRATIONS = [SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION];
-module.exports = { SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION, ACCOUNT_MIGRATIONS };
+// Rebuild the parent table with foreign keys temporarily disabled by the migrator.
+const EMAIL_LOGIN_MIGRATION = {
+  version: 4,
+  name: 'unique-email-login-and-repeatable-display-usernames',
+  rebuildForeignKeys: true,
+  sql: `
+    CREATE TABLE users_new (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL COLLATE NOCASE,
+      display_name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+      must_change_password INTEGER NOT NULL DEFAULT 0 CHECK (must_change_password IN (0, 1)),
+      security_version INTEGER NOT NULL DEFAULT 1 CHECK (security_version > 0),
+      login_policy TEXT NOT NULL DEFAULT 'standard' CHECK (login_policy IN ('standard', 'strict')),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      disabled_at INTEGER,
+      deleted_at INTEGER,
+      storage_quota_bytes INTEGER NOT NULL DEFAULT 0 CHECK (storage_quota_bytes >= 0),
+      storage_bytes INTEGER NOT NULL DEFAULT 0 CHECK (storage_bytes >= 0)
+    ) STRICT;
+    INSERT INTO users_new (id,username,display_name,password_hash,role,must_change_password,security_version,login_policy,created_at,updated_at,disabled_at,deleted_at,storage_quota_bytes,storage_bytes)
+      SELECT id,username,display_name,password_hash,role,must_change_password,security_version,login_policy,created_at,updated_at,disabled_at,deleted_at,storage_quota_bytes,storage_bytes FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_new RENAME TO users;
+    CREATE INDEX users_active_username ON users(username) WHERE deleted_at IS NULL;
+    CREATE TRIGGER users_id_immutable BEFORE UPDATE OF id ON users
+      WHEN NEW.id <> OLD.id BEGIN SELECT RAISE(ABORT, 'immutable user ID'); END;
+    CREATE TABLE legacy_login_names (
+      username TEXT PRIMARY KEY COLLATE NOCASE,
+      user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE
+    ) STRICT;
+    INSERT INTO legacy_login_names SELECT username,id FROM users;
+    CREATE UNIQUE INDEX verification_email_unique ON verification_preferences(email COLLATE NOCASE) WHERE email IS NOT NULL;
+    UPDATE registration_challenges SET blocked=1 WHERE consumed_at IS NULL;
+  `
+};
+const ACCOUNT_MIGRATIONS = [SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION, EMAIL_LOGIN_MIGRATION];
+module.exports = { SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION, EMAIL_LOGIN_MIGRATION, ACCOUNT_MIGRATIONS };

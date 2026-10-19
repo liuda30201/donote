@@ -60,9 +60,81 @@ test('configured SMTP requires verified STARTTLS and bounded network timeouts', 
   assert.equal(f.messages[0].from, configured.SMTP_FROM);
   assert.equal(f.messages[0].to, message.to);
   assert.match(f.messages[0].text, /012345/);
-  assert.match(f.messages[0].text, /email-change/);
-  assert.equal(f.messages[0].html, undefined);
+  assert.match(f.messages[0].text, /绑定或更换/);
+  assert.match(f.messages[0].html, /012345/);
+  assert.match(f.messages[0].html, /lang="zh-CN"/);
   assert.equal(f.messages[0].subject.includes(message.code), false);
+});
+
+test('Chinese templates provide matching HTML and text without external resources or code in subject', async () => {
+  const f = fixture();
+  for (const [purpose, title] of [
+    ['account registration', '欢迎使用 DoNote'], ['login', '确认是你本人登录'],
+    ['bind', '验证你的邮箱'], ['reauth', '确认本次安全操作'],
+    ['unknown-purpose', '验证你的身份'], ['constructor', '验证你的身份']
+  ]) {
+    await f.mailer.sendCode({ ...message, purpose });
+    const mail = f.messages.at(-1);
+    for (const body of [mail.text, mail.html]) {
+      assert.ok(body.includes(title));
+      assert.ok(body.includes('012345'));
+      assert.match(body, /5 分钟/);
+      assert.match(body, /仅可使用一次/);
+      assert.match(body, /请勿向任何人透露/);
+      assert.match(body, /如果这不是你本人的操作/);
+    }
+    assert.doesNotMatch(mail.html, /<script|<img|<form|https?:\/\//i);
+    assert.doesNotMatch(mail.subject, /012345/);
+    assert.equal(mail.disableFileAccess, true);
+    assert.equal(mail.disableUrlAccess, true);
+    assert.equal(mail.html.includes('unknown-purpose'), false);
+  }
+});
+
+test('login and reauthentication explain non-owner risks without reusing registration advice', async () => {
+  const f = fixture();
+  for (const purpose of ['login', 'reauth', 'account registration']) {
+    await f.mailer.sendCode({ ...message, purpose });
+    for (const body of [f.messages.at(-1).text, f.messages.at(-1).html]) {
+      if (purpose === 'login') assert.match(body, /可能有人已获取你的账户密码/);
+      if (purpose === 'reauth') assert.match(body, /撤销陌生会话/);
+      if (purpose === 'account registration') assert.doesNotMatch(body, /已获取你的账户密码/);
+    }
+  }
+});
+
+test('login notices contain escaped event details, no code, and explicit location limitations', async () => {
+  const f = fixture();
+  for (const kind of ['new-device', 'unusual-location']) {
+    await f.mailer.sendLoginNotice({ to: message.to, kind, occurredAt: Date.UTC(2026, 9, 19, 3), device: '<script>alert(1)</script>', ip: '203.0.113.1', location: '中国 & 上海' });
+    const mail = f.messages.at(-1);
+    assert.match(mail.html, /&lt;script&gt;/);
+    assert.doesNotMatch(mail.html, /<script>/);
+    assert.match(mail.html, /中国 &amp; 上海/);
+    for (const body of [mail.text, mail.html]) {
+      assert.match(body, /2026-10-19 03:00:00 UTC/);
+      assert.match(body, /203\.0\.113\.1/);
+      assert.match(body, /撤销陌生设备会话/);
+      assert.match(body, /无需输入验证码/);
+      assert.match(body, /VPN、代理或移动网络/);
+      assert.doesNotMatch(body, /5 分钟|012345/);
+    }
+    assert.match(mail.subject, kind === 'new-device' ? /新设备/ : /疑似异地/);
+  }
+});
+
+test('notice validation fails closed and shares delivery error and lifecycle behavior', async () => {
+  const f = fixture();
+  const notice = { to: message.to, kind: 'new-device', occurredAt: Date.now() };
+  for (const values of [{ kind: 'unknown' }, { to: 'bad' }, { occurredAt: NaN }, { occurredAt: 1e16 }, { device: 'bad\nvalue' }, { ip: 'spoofed' }, { location: 'x'.repeat(201) }, { kind: 'unusual-location' }]) {
+    await assert.rejects(f.mailer.sendLoginNotice({ ...notice, ...values }), { code: 'MAIL_INVALID_MESSAGE' });
+  }
+  assert.equal(f.messages.length, 0);
+  f.transport.sendMail = async () => { throw new Error('secret'); };
+  await assert.rejects(f.mailer.sendLoginNotice(notice), { code: 'MAIL_UNAVAILABLE' });
+  f.mailer.close();
+  await assert.rejects(f.mailer.sendLoginNotice(notice), { code: 'MAIL_UNAVAILABLE' });
+  await assert.rejects(createMailer({}).sendLoginNotice(notice), { code: 'MAIL_UNAVAILABLE' });
 });
 
 test('implicit TLS and safe default ports work with optional relay authentication', () => {
@@ -111,6 +183,7 @@ test('message validation prevents address lists, header injection and invalid co
     { to: 'reader@example.test,other@example.test' }, { to: 'a@example.test\r\nBcc: b@example.test' },
     { to: 'Display <reader@example.test>' }, { to: '' }, { code: '' }, { code: 123456 },
     { code: '123456\nInjected' }, { code: 'x'.repeat(129) },
+    { code: '12345' }, { code: '1234567' }, { code: 'abcdef' }, { code: '<img/>' },
     { purpose: 'email\r\nInjected' }, { purpose: '' }, { purpose: 'x'.repeat(81) }
   ]) {
     await assert.rejects(f.mailer.sendCode({ ...message, ...values }), { code: 'MAIL_INVALID_MESSAGE' });

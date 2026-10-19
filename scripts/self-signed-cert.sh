@@ -21,7 +21,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 CERT_DIR="${PROJECT_DIR}/nginx/certs"
 DAYS="${DAYS:-3650}"
-DOMAIN="node.7705.work"
+DOMAIN="${DOMAIN:?请先设置 DOMAIN 环境变量，例如 DOMAIN=notes.example.com ./scripts/self-signed-cert.sh}"
 
 command -v openssl >/dev/null 2>&1 || die "未安装 openssl"
 

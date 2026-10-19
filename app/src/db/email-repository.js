@@ -16,6 +16,7 @@ function createEmailRepository(db) {
     const address = email === undefined ? previous?.email || null : email;
     if (method === 'email' && !address) throw new Error('Verified email required');
     return tx(() => {
+      if (address && db.prepare('SELECT 1 FROM verification_preferences WHERE email=? COLLATE NOCASE AND user_id<>? LIMIT 1').get(address,userId)) { const error = new Error('Email already in use'); error.code = 'EMAIL_CONFLICT'; throw error; }
       db.prepare('INSERT INTO verification_preferences(user_id,method,email,email_verified_at,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET method=excluded.method,email=excluded.email,email_verified_at=excluded.email_verified_at,updated_at=excluded.updated_at').run(userId,method,address,address ? (email === undefined ? previous.email_verified_at : at) : null,at);
       db.prepare('UPDATE users SET security_version=security_version+1,updated_at=? WHERE id=?').run(at,userId);
       db.prepare('UPDATE sessions SET revoked_at=COALESCE(revoked_at,?) WHERE user_id=?').run(at,userId);
@@ -57,11 +58,11 @@ function createEmailRepository(db) {
     if (!enabled) return false;
     return tx(() => {
       db.prepare('DELETE FROM registration_challenges WHERE created_at<=?').run(at-3600000);
-      const recent = db.prepare('SELECT created_at FROM registration_challenges WHERE (email=? OR username=?) AND consumed_at IS NULL AND created_at>? ORDER BY created_at DESC LIMIT 1').get(email, username, at - 60000);
+      const recent = db.prepare('SELECT created_at FROM registration_challenges WHERE email=? AND consumed_at IS NULL AND created_at>? ORDER BY created_at DESC LIMIT 1').get(email, at - 60000);
       if (recent) return false;
       const count = db.prepare('SELECT count(*) AS n FROM registration_challenges WHERE email=? AND created_at>?').get(email, at - 3600000).n;
       if (count >= 5 || registrationCount(sourceHash, at) >= 10) return false;
-      db.prepare('UPDATE registration_challenges SET blocked=1 WHERE (email=? OR username=?) AND consumed_at IS NULL').run(email, username);
+      db.prepare('UPDATE registration_challenges SET blocked=1 WHERE email=? AND consumed_at IS NULL').run(email);
       db.prepare('INSERT INTO registration_challenges(id,token_hash,username,display_name,email,source_hash,password_hash,code_hash,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(randomUUID(), digest(token), username, displayName, email, sourceHash, passwordHash, codeHash, at, at + 300000);
       return true;
     });
@@ -75,7 +76,7 @@ function createEmailRepository(db) {
     return tx(() => {
       const row = findRegistration(token, at);
       if (!row) return null;
-      const conflict = db.prepare('SELECT 1 FROM users WHERE username=?').get(row.username) || emailInUse(row.email);
+      const conflict = emailInUse(row.email);
       db.prepare('UPDATE registration_challenges SET consumed_at=? WHERE id=?').run(at, row.id);
       if (conflict) return { result: { success: true } };
       const result = mutation(row);

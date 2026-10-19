@@ -1,5 +1,5 @@
 # web-clipboard —— 私有跨设备剪贴板
-# 架构: 浏览器 --https://node.7705.work--> nginx(TLS) --http--> app(仅内部网络)
+# 架构: 浏览器 --https://<your-domain>--> nginx(TLS) --http--> app(仅内部网络)
 # 应用端口不对外暴露；nginx 绑定宿主机 443 (HTTPS 入口) 与 80 (仅 ACME 验证 + 跳转)
 # 80 端口上除 /.well-known/acme-challenge/ 外一律 301 到 https，明文不承载任何数据。
 services:
@@ -58,7 +58,7 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "--no-check-certificate", "--header=Host: node.7705.work", "https://127.0.0.1:443/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "-", "--no-check-certificate", "--header=Host: ${NGINX_SERVER_NAME:-localhost}", "https://127.0.0.1:443/healthz"]
       interval: 30s
       timeout: 5s
       retries: 5

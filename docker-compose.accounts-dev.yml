@@ -1,0 +1,36 @@
+# Local accounts testing; separate from legacy and production data.
+services:
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    image: donote-accounts-local:dev
+    restart: "no"
+    stop_grace_period: 35s
+    environment:
+      PORT: "3000"
+      STORAGE_ROOT: /app/data
+      AUTH_MODE: accounts
+      AUTH_DEV_HTTP: "1"
+      AUTH_ORIGIN: http://127.0.0.1:3001,http://localhost:3001
+      AUTH_KEY_FILE: /run/secrets/auth.key
+      AUTH_KEY_ID: local-dev
+      SENSITIVE_KEYRING_FILE: /run/secrets/content-keyring.json
+      TZ: Asia/Shanghai
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./.dev-data/accounts-local:/app/data
+      - ./.dev-data/accounts-keys:/run/secrets:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:3000,path:'/api/version'},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s

@@ -4,7 +4,7 @@
 
 ## 域名与入口
 
-当前配置使用 `node.7705.work`，80 提供 ACME HTTP-01 验证并将其他请求跳转到 HTTPS；443 提供应用入口。Compose 同时发布 IPv4 和 IPv6 地址；外部可达性还取决于 DNS、路由和防火墙。
+当前配置通过 `DOMAIN` 和 `NGINX_SERVER_NAME` 两个环境变量指定域名，80 提供 ACME HTTP-01 验证并将其他请求跳转到 HTTPS；443 提供应用入口。Compose 同时发布 IPv4 和 IPv6 地址；外部可达性还取决于 DNS、路由和防火墙。
 
 换域名时同步修改：
 

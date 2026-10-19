@@ -23,11 +23,10 @@ function createEmailVerification({repo,authService,mailer,encryptionKey,now=Date
   }
   function validateRegistration(payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new AuthError(400,'INVALID_REGISTRATION');
-    const username = typeof payload.username === 'string' ? payload.username.trim().toLowerCase() : '';
-    const displayName = typeof payload.displayName === 'string' ? payload.displayName.trim() : username;
-    if (!/^[a-z0-9][a-z0-9_.-]{2,63}$/.test(username) || !displayName || displayName.length > 128) throw new AuthError(400,'INVALID_REGISTRATION');
     const email = normalize(payload.email);
-    return {username, displayName, email};
+    const username = email.split('@')[0];
+    if (!username || username.length > 64) throw new AuthError(400,'INVALID_REGISTRATION');
+    return { username, displayName: username, email };
   }
   let registrationWorkers = 0;
   async function startRegistration(req) {
@@ -42,7 +41,7 @@ function createEmailVerification({repo,authService,mailer,encryptionKey,now=Date
     if (!mailer?.available) throw new AuthError(503,'MAIL_UNAVAILABLE');
     const {username,displayName,email}=validateRegistration(req.body);
     const password = req.body?.password;
-    if (typeof password !== 'string' || password.length < 12 || Buffer.byteLength(password,'utf8') > 1024) throw new AuthError(400,'PASSWORD_POLICY');
+    try { p.validateNewPassword(password, email); } catch { throw new AuthError(400,'PASSWORD_POLICY'); }
     const ipHash=sourceHash(req);
     if (repo.email.registrationCount(ipHash,now()) >= 10) throw new AuthError(429,'REGISTRATION_RATE_LIMIT');
     let passwordHash;
@@ -63,7 +62,7 @@ function createEmailVerification({repo,authService,mailer,encryptionKey,now=Date
     if(typeof body.code !== 'string' || !/^[0-9]{6}$/.test(body.code) || !p.constantTimeEqual(row.code_hash,codeHash(body.challenge,body.code))){repo.email.registrationFailure(body.challenge);throw fail();}
     try {
       const result=repo.email.consumeRegistration(body.challenge,now(),entry=>{
-        const user=repo.createUser({username:entry.username,displayName:entry.display_name,passwordHash:entry.password_hash,role:'user',mustChangePassword:false,at:now()});
+        const user=repo.createUser({username:entry.username,displayName:entry.display_name,passwordHash:entry.password_hash,role:'user',emailAccount:true,mustChangePassword:false,at:now()});
         repo.email.setInitialPreference({userId:user.id,email:entry.email,at:now()});
         repo.addAudit({actorId:user.id,targetId:user.id,action:'user.created',ipAddress:source(req),at:now(),detail:{reason:'self-registration',authMethod:'email'}});
         return {success:true};
@@ -102,7 +101,7 @@ function createEmailVerification({repo,authService,mailer,encryptionKey,now=Date
   function registrationAvailable() { return Boolean(mailer?.available); }
   async function sendReauth(req){const c=current(req),pref=repo.email.preference(c.user.id);if(authService.verificationMethod(c.user)!=='email'||!pref?.email_verified_at)throw fail();const action=req.body?.action;if(!EMAIL_REAUTH_ACTIONS.has(action))throw new AuthError(400,'INVALID_ACTION');return send(req,{user:c.user,email:pref.email,purpose:'reauth',sessionId:c.session.id,target:{action,...(req.body.targetSessionId?{targetSessionId:req.body.targetSessionId}:{})}});}
   async function startBind(req){const c=current(req);if(c.session.is_ephemeral)throw new AuthError(403,'TEMPORARY_SESSION');if(c.user.role==='admin'||c.user.login_policy==='strict')throw new AuthError(403,'MFA_POLICY_REQUIRED');const email=normalize(req.body?.email);await verifyCurrent(req,c);return send(req,{user:c.user,email,purpose:'bind',sessionId:c.session.id,target:{email}});}
-  function confirmBind(req){const c=current(req);if(c.session.is_ephemeral)throw new AuthError(403,'TEMPORARY_SESSION');if(c.user.role==='admin'||c.user.login_policy==='strict')throw new AuthError(403,'MFA_POLICY_REQUIRED');consume(req.body?.challenge,req.body?.code,{userId:c.user.id,purpose:'bind',sessionId:c.session.id},row=>{let email;try{const parsed=JSON.parse(row.target);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||typeof parsed.email!=='string')throw fail();email=normalize(parsed.email);if(email!==parsed.email)throw fail();}catch{throw fail();}repo.email.setPreference({userId:c.user.id,method:'email',email,at:now()});repo.addAudit({actorId:c.user.id,targetId:c.user.id,action:'security.factor_changed',at:now(),detail:{authMethod:'email'}});});return {success:true,requiresLogin:true};}
+  function confirmBind(req){const c=current(req);if(c.session.is_ephemeral)throw new AuthError(403,'TEMPORARY_SESSION');if(c.user.role==='admin'||c.user.login_policy==='strict')throw new AuthError(403,'MFA_POLICY_REQUIRED');consume(req.body?.challenge,req.body?.code,{userId:c.user.id,purpose:'bind',sessionId:c.session.id},row=>{let email;try{const parsed=JSON.parse(row.target);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||typeof parsed.email!=='string')throw fail();email=normalize(parsed.email);if(email!==parsed.email)throw fail();}catch{throw fail();}try { repo.email.setPreference({userId:c.user.id,method:'email',email,at:now()}); } catch(error) { if(error.code==='EMAIL_CONFLICT') throw new AuthError(409,'EMAIL_CONFLICT'); throw error; }repo.addAudit({actorId:c.user.id,targetId:c.user.id,action:'security.factor_changed',at:now(),detail:{authMethod:'email'}});});return {success:true,requiresLogin:true};}
   async function change(req){const c=current(req);if(c.session.is_ephemeral)throw new AuthError(403,'TEMPORARY_SESSION');if(c.user.role==='admin'||c.user.login_policy==='strict')throw new AuthError(403,'MFA_POLICY_REQUIRED');const method=req.body?.method;if(!['password','totp','email'].includes(method))throw new AuthError(400,'INVALID_METHOD');if(method==='email'){const pref=repo.email.preference(c.user.id);if(!pref?.email_verified_at||!pref.email)throw new AuthError(400,'EMAIL_NOT_VERIFIED');}if(method==='totp'&&repo.getTotpCredential(c.user.id)?.enabled_at==null)throw new AuthError(400,'TOTP_SETUP_REQUIRED');await verifyCurrent(req,c);if(method==='email')repo.email.setPreference({userId:c.user.id,method,email:undefined,at:now()});else repo.email.setPreference({userId:c.user.id,method,at:now()});repo.addAudit({actorId:c.user.id,targetId:c.user.id,action:'security.factor_changed',at:now(),detail:{authMethod:method}});return {success:true,requiresLogin:true};}
   return {send,check,consume,settings,registrationAvailable,sendReauth,startBind,confirmBind,change,startRegistration,completeRegistration};
 }

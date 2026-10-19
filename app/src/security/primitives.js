@@ -3,14 +3,23 @@
 const crypto = require('node:crypto');
 const argon2 = require('argon2');
 
-const PASSWORD_POLICY = Object.freeze({ minLength: 12, maxBytes: 1024, memoryCost: 65536, timeCost: 3, parallelism: 1, hashLength: 32 });
+const PASSWORD_POLICY = Object.freeze({ minLength: 8, maxBytes: 1024, memoryCost: 65536, timeCost: 3, parallelism: 1, hashLength: 32 });
 const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
 function passwordBytes(password) {
   if (typeof password !== 'string' || password.length < PASSWORD_POLICY.minLength || Buffer.byteLength(password, 'utf8') > PASSWORD_POLICY.maxBytes) {
-    throw new TypeError('Password must contain at least 12 characters and at most 1024 UTF-8 bytes');
+    throw new TypeError('Password must contain at least 8 characters and at most 1024 UTF-8 bytes');
   }
   return Buffer.from(password, 'utf8');
+}
+
+// Validation applies only when setting a password, never when verifying an existing hash.
+function validateNewPassword(password, email = '') {
+  passwordBytes(password);
+  if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/.test(password)) throw new TypeError('Password requires uppercase, lowercase, number and punctuation');
+  const local = String(email).split('@')[0].toLowerCase();
+  const compact = value => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (local && (password.toLowerCase().includes(local) || (compact(local).length >= 3 && compact(password).includes(compact(local))))) throw new TypeError('Password must not contain email account');
 }
 
 async function hashPassword(password) {
@@ -138,4 +147,4 @@ function hashRecoveryCode(code) {
   return crypto.createHash('sha256').update('donote-recovery-v1\0').update(code, 'ascii').digest('hex');
 }
 
-module.exports = { PASSWORD_POLICY, hashPassword, verifyPassword, generateToken, hashToken, constantTimeEqual, generateTotpSecret, generateTotp, verifyTotp, encryptSecret, decryptSecret, generateRecoveryCodes, hashRecoveryCode };
+module.exports = { validateNewPassword, PASSWORD_POLICY, hashPassword, verifyPassword, generateToken, hashToken, constantTimeEqual, generateTotpSecret, generateTotp, verifyTotp, encryptSecret, decryptSecret, generateRecoveryCodes, hashRecoveryCode };

@@ -10,7 +10,7 @@ test('restricted setup and recovery never mint sessions and consume challenges/c
   const repo = createRepositories(db); let at = 1800000000000;
   const service = createAuthService({ repo, allowedOrigins: ['https://test.local'], encryptionKey: crypto.randomBytes(32), keyId: 'test', now: () => at });
   const req = body => ({ body, headers: { origin: 'https://test.local' }, ip: '127.0.0.1' });
-  const password = 'synthetic-password-old'; const newPassword = 'synthetic-password-new';
+  const password = 'synthetic-password-old'; const newPassword = 'Synthetic-password-new1!';
   const user = repo.createUser({ username: 'admin-setup', displayName: 'Setup', role: 'admin', mustChangePassword: true, passwordHash: await p.hashPassword(password) });
   const initial = await service.login(req({ username: user.username, password }));
   assert.equal(initial.requiresSetup, true); assert.equal(initial.requireFactor, true); assert.equal(initial.requirePassword, true);
@@ -40,10 +40,10 @@ test('restricted setup and recovery never mint sessions and consume challenges/c
   assert.equal(interrupted.requiresSetup, true); assert.equal(interrupted.requireFactor, true);
   await assert.rejects(service.startRecovery(req({ username: user.username, password: newPassword, recoveryCode: done.recoveryCodes[0] })));
   const recoveryStaged = service.startSetup(req({ challenge: recovered.challenge }));
-  const final = await service.completeSetup(req({ challenge: recoveryStaged.challenge, newPassword: 'synthetic-recovered-password', code: p.generateTotp(recoveryStaged.secret, { now: at }) }));
+  const final = await service.completeSetup(req({ challenge: recoveryStaged.challenge, newPassword: 'Synthetic-recovered-password1!', code: p.generateTotp(recoveryStaged.secret, { now: at }) }));
   assert.equal(final.requiresLogin, true); assert.equal(final.recoveryCodes.length, 10);
   assert.equal(repo.listSessions(user.id).filter(s => s.revoked_at === null).length, 0);
   at += 60000;
-  const expired = await service.login(req({ username: user.username, password: 'synthetic-recovered-password' })); at += 300001;
+  const expired = await service.login(req({ username: user.username, password: 'Synthetic-recovered-password1!' })); at += 300001;
   assert.throws(() => service.completeLogin(req({ challenge: expired.challenge, code: p.generateTotp(recoveryStaged.secret, { now: at }) })));
 });

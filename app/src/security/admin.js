@@ -53,11 +53,11 @@ function createAdminService({ authService, repo, encryptionKey, keyId, now = Dat
     const target = targetUser(targetId);
     if (action === 'admin.user.disable') { if (typeof values.disabled !== 'boolean') throw fail(400, 'INVALID_VALUES'); fixed = { disabled: values.disabled }; }
     if (action === 'admin.user.role') { if (!['user','admin'].includes(values.role)) throw fail(400, 'INVALID_VALUES'); fixed = { role: values.role }; }
-    if (action === 'admin.user.reset-password') { passwordPolicy(values.password); fixed = { passwordDigest: digest(values.password) }; }
+    if (action === 'admin.user.reset-password') { try { p.validateNewPassword(values.password); } catch { throw fail(400, 'PASSWORD_POLICY'); } fixed = { passwordDigest: digest(values.password) }; }
     return { action, userId: target.id, securityVersion: target.security_version, values: fixed };
   }
   function passwordPolicy(value) {
-    if (typeof value !== 'string' || value.length < p.PASSWORD_POLICY.minLength || Buffer.byteLength(value, 'utf8') > p.PASSWORD_POLICY.maxBytes) throw fail(400, 'PASSWORD_POLICY');
+    try { p.validateNewPassword(value); } catch { throw fail(400, 'PASSWORD_POLICY'); }
   }
   function freshActor(auth, expected) {
     const user = repo.findUserById(auth.user.id);

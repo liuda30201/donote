@@ -160,7 +160,7 @@ function createOperationsService({ authService, repo, encryptionKey, keyId, maxP
     workers += 1; let passwordHash;
     try {
       if (!await p.verifyPassword(body.currentPassword, expected.password_hash)) throw fail();
-      try { passwordHash = await p.hashPassword(body.newPassword); } catch { throw new AuthError(400, 'PASSWORD_POLICY'); }
+      try { p.validateNewPassword(body.newPassword); passwordHash = await p.hashPassword(body.newPassword); } catch { throw new AuthError(400, 'PASSWORD_POLICY'); }
     } finally { workers -= 1; }
     freshUser(current, expected);
     return consume(current, req.headers['x-operation-grant'], 'password.change', () => {

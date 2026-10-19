@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# web-clipboard —— 使用 HTTP-01 申请/续期 node.7705.work 的正式证书
+# web-clipboard —— 使用 HTTP-01 申请/续期指定域名的正式证书
 #
 # 适用范围：
 #   - 本机有独立公网 IP，外网可直连 80 与 443（已在手机移动网络实测通过）
@@ -31,7 +31,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 CERT_DIR="${PROJECT_DIR}/nginx/certs"
 WEBROOT_DIR="${PROJECT_DIR}/nginx/www/acme"
-DOMAIN="node.7705.work"
+DOMAIN="${DOMAIN:?请先设置 DOMAIN 环境变量，例如 DOMAIN=notes.example.com ./scripts/deploy-certs.sh}"
 EMAIL_FILE="${PROJECT_DIR}/acme-email.txt"
 LIVE_DIR="/etc/letsencrypt/live/${DOMAIN}"
 NGINX_CONTAINER="wcb-nginx"

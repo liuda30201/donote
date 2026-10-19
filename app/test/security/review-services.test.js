@@ -81,7 +81,7 @@ test('admin invalid TOTP writes a credential-free failure audit', async () => {
   const audits = [];
   const repo = { findUserById: () => user, findUserByUsername: () => null, activeSession: () => session, getTotpCredential: () => factor, addAudit: row => audits.push(row) };
   const service = createAdminService({ repo, encryptionKey: key, keyId: 'test', now: () => at, authService: { authenticateRequest: () => ({ user, session }), requireOrigin() {}, requireCsrf() {} } });
-  await assert.rejects(service.reauth(request({ action: 'admin.user.create', values: { username: 'new-user', displayName: 'New', password: 'synthetic-user-password' }, password, code: 'invalid' })), { code: 'AUTH_FAILED' });
+  await assert.rejects(service.reauth(request({ action: 'admin.user.create', values: { username: 'new-user', displayName: 'New', password: 'Synthetic-user-password1!' }, password, code: 'invalid' })), { code: 'AUTH_FAILED' });
   assert.equal(audits.length, 1);
   assert.equal(audits[0].action, 'login.factor_failed');
   assert.equal(audits[0].actorSessionId, session.id);
