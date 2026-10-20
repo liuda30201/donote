@@ -14,6 +14,20 @@
 
 为新域名签发证书后检查 Nginx 配置，再启动或重载。
 
+## 首次部署
+
+```bash
+cp .env.production.example .env && chmod 600 .env
+# 编辑 .env，至少填写 ACCESS_PASSWORD
+docker compose build app
+docker compose up -d
+curl -fkSs https://127.0.0.1/healthz   # 自签证书阶段用 -k
+sudo ./scripts/deploy-certs.sh         # 签发正式证书并热加载
+curl -fsS https://<your-domain>/healthz # 校验公网证书与入口
+```
+
+DNS 的 A/AAAA 必须指向本机，80 端口需对公网放行；首次构建使用 `web-clipboard-local:1.6.9-p8`，并在 `.env` 中设置 `DOMAIN` 与 `NGINX_SERVER_NAME`。
+
 ## 日常操作
 
 | 目的 | 命令 |
@@ -28,7 +42,7 @@
 | 最近日志 | `docker compose logs --tail=100 app nginx` |
 | 重启应用 | `docker compose restart app` |
 | 检查代理配置 | `docker exec wcb-nginx nginx -t` |
-| 健康检查 | `curl -fsS https://node.7705.work/healthz` |
+| 健康检查 | `curl -fsS https://<your-domain>/healthz` |
 | 查看证书 | `./scripts/deploy-certs.sh --status` |
 
 自签证书下，健康检查需使用 `curl -fkSs`。`/healthz` 仅检查 Nginx 响应，应用健康状态见 `docker compose ps`。两个容器配置 `restart: unless-stopped`。
@@ -115,6 +129,25 @@ docker compose logs --tail=100 app
 
 以 `./scripts/deploy-certs.sh --status` 查看实际证书，不在文档中固定证书类型和到期日期。
 
+### 当前 donote.cc 账户部署
+
+使用 `docker compose -f docker-compose.accounts.yml` 管理当前服务；SQLite 数据库位于 `data/donote.db`，与附件目录一同持久化。SMTP 配置保存在未提交的 `.env`，启用后登录页提供邮箱验证码注册。
+
+空数据库首次启动时，应用读取 `.env` 中唯一一组 `ADMIN_EMAIL` 和 `ADMIN_PASSWORD`，创建可用邮箱登录的管理员。`ADMIN_PASSWORD` 是网站登录密码；只有明确希望复用时才填写为现有邮箱密码，它不会自动读取 `SMTP_PASSWORD`。`.env` 权限应为 `600`。管理员先通过邮箱和密码验证，再按提示扫描身份验证器二维码、输入动态验证码，并保存恢复码；绑定后每次登录都需要动态验证码。
+
+初始化仅作用于空数据库。重启或修改 `ADMIN_EMAIL`、`ADMIN_PASSWORD` 不会覆盖已有账户，也不会把自行注册的同名邮箱账户提升为管理员。已有管理员的密码应在登录后的安全设置中修改。登录页默认仅显示邮箱账号和密码，通过密码验证后才按账户设置显示二次验证。
+
+本机 Certbot 使用项目内 `.letsencrypt/`、`.letsencrypt-work/` 和 `.letsencrypt-logs/`，由可访问 Docker 的部署用户运行，无需 sudo。证书使用 `donote.cc`，通过 Nginx 的 HTTP-01 webroot 验证。当前用户 cron 每日 03:17、15:17（服务器时区）执行 `scripts/renew-local-certs.sh`，日志位于 `.letsencrypt-logs/cron-renew.log`。脚本执行续期检查后同步正式证书并校验、热加载 Nginx。
+
+```bash
+crontab -l
+./scripts/renew-local-certs.sh --dry-run    # 模拟续期，不安装测试证书
+./scripts/renew-local-certs.sh --sync-only  # 同步现有证书并热加载
+openssl x509 -in nginx/certs/fullchain.pem -noout -issuer -dates
+```
+
+项目移动后需更新 cron 中的绝对路径及 `.letsencrypt/renewal/donote.cc.conf` 中的 webroot 路径。备份时除 `data/` 外还应保存 `.secrets/`、`.env`、`.letsencrypt/`；这些文件包含私钥及凭据，不能提交到仓库。
+
 ### 首次启动或内网测试
 
 ```bash
@@ -141,6 +174,16 @@ sudo ./scripts/deploy-certs.sh             # 正式签发/续期
 ```
 
 脚本同步证书到 `nginx/certs/`，先 `nginx -t` 再热加载，并在 `/etc/letsencrypt/renewal-hooks/deploy/` 写入续期钩子。`certbot.timer` 负责定期检查续期；项目移动后需重新生成钩子，使其中的路径与项目一致。
+
+自动续期链路：`certbot.timer` → `certbot.service` 检查到期（到期前 30 天）→ renewal-hooks/deploy 同步证书到 `nginx/certs/` → `wcb-nginx` 热加载。日常只需确认：
+
+```bash
+systemctl list-timers certbot.timer          # 下一次检查时间
+sudo certbot renew --dry-run                 # 演练续期，不影响线上证书
+./scripts/deploy-certs.sh --status           # 挂载目录里的证书是否已更新
+```
+
+注意：续期钩子依赖本机 docker 可用（`docker exec wcb-nginx`）。若 nginx 容器未运行，钩子中 `install` 先执行、`docker exec` 随后失败，certbot 会把该钩子记为错误，但证书本身已续期，下次 `docker compose up -d` 即可加载新证书。
 
 ## 访问与文件限制
 

@@ -2308,10 +2308,11 @@ function setRegistrationMode(enabled) {
   document.getElementById('registration-toggle')?.classList.toggle('hidden', !registrationAvailable);
   document.getElementById('registration-toggle').textContent = registrationMode ? '返回登录' : '创建账户';
   authBtn.textContent = registrationMode ? (registrationChallenge ? '确认邮箱并创建账户' : '发送验证码') : '进入工作台';
-  document.getElementById('username-label')?.classList.toggle('hidden', registrationMode);
-  document.getElementById('username-input')?.classList.toggle('hidden', registrationMode);
+  document.getElementById('username-label')?.classList.remove('hidden');
+  document.getElementById('username-input')?.classList.remove('hidden');
   document.getElementById('password-help')?.classList.toggle('hidden', !registrationMode);
-  document.getElementById('account-options')?.classList.toggle('hidden', registrationMode || currentMode !== 'accounts');
+  document.getElementById('account-advanced')?.classList.add('hidden');
+  document.getElementById('account-reset-btn')?.classList.add('hidden');
   document.getElementById('account-factor-fields')?.classList.add('hidden');
   if (!registrationMode) {
     registrationChallenge = null;
@@ -2327,9 +2328,9 @@ function configureAccountLogin() {
   const label = document.getElementById('username-label'); const input = document.getElementById('username-input');
   if (label) label.classList.remove('hidden'); if (input) input.classList.remove('hidden');
   const passwordLabel = document.querySelector('label[for="password-input"]'); if (passwordLabel) passwordLabel.textContent = '密码';
-  document.getElementById('account-options')?.classList.remove('hidden');
+  document.getElementById('account-advanced')?.classList.add('hidden');
   document.getElementById('registration-toggle')?.classList.toggle('hidden', !registrationAvailable);
-  document.getElementById('account-reset-btn')?.classList.remove('hidden');
+  document.getElementById('account-reset-btn')?.classList.add('hidden');
   document.querySelector('.login-duration-container')?.classList.add('hidden');
   for (const key of ['web-clipboard-password', 'web-clipboard-user-id', 'web-clipboard-login-expires', 'web-clipboard-cached-messages', 'web-clipboard-cached-favorites']) localStorage.removeItem(key);
   setRegistrationMode(false);
@@ -2823,19 +2824,36 @@ async function loadOlderMessages() {
 }
 
 function accountIdentifierPayload(identifier) {
-  return identifier.includes('@') ? { email: identifier } : { username: identifier };
+  return { email: identifier };
+}
+function showAccountFactorStep({ requirePassword = false, requireFactor = true, email = false, recovery = false } = {}) {
+  document.getElementById('account-factor-fields').classList.remove('hidden');
+  document.getElementById('account-reset-btn').classList.remove('hidden');
+  document.getElementById('account-advanced').classList.toggle('hidden', !recovery);
+  for (const id of ['username-input', 'password-input']) document.getElementById(id).disabled = true;
+  verificationField('account-code').classList.toggle('hidden', !requireFactor);
+  verificationField('account-code-label').classList.toggle('hidden', !requireFactor);
+  verificationField('account-code').required = requireFactor;
+  verificationField('account-code-label').textContent = email ? '邮箱验证码' : '动态验证码';
+  verificationField('account-code').placeholder = email ? '六位邮箱验证码' : '六位动态验证码';
+  verificationField('account-new-password').classList.toggle('hidden', !requirePassword);
+  document.querySelector('label[for="account-new-password"]').classList.toggle('hidden', !requirePassword);
+  verificationField('account-new-password').required = requirePassword;
+  authBtn.textContent = '完成验证';
+  (requirePassword ? verificationField('account-new-password') : verificationField('account-code')).focus();
 }
 function resetAccountLogin(preserveSelfSecurityOp = false) {
   if (preserveSelfSecurityOp !== true) cancelSelfSecurityDelivery();
   clearEnrollment(); enrollmentPending = false;
   accountEpoch += 1; accountStage = 'login'; accountChallenge = null;
   setRegistrationMode(false);
-  for (const id of ['username-input', 'password-input', 'registration-email', 'registration-code']) document.getElementById(id).disabled = false;
-  for (const id of ['registration-email', 'registration-code']) document.getElementById(id).value = '';
+  for (const id of ['username-input', 'password-input', 'registration-code']) document.getElementById(id).disabled = false;
+  document.getElementById('registration-code').value = '';
+  document.getElementById('account-advanced').open = false;
   passwordInput.autocomplete = 'current-password';
   passwordInput.placeholder = '输入密码';
   authBtn.disabled = false;
-  verificationField('account-code-label').textContent = '动态验证码'; verificationField('account-code-label').classList.remove('hidden'); verificationField('account-code').classList.remove('hidden'); verificationField('account-code').required = true; verificationField('account-code').placeholder = '六位动态验证码'; verificationField('account-new-password').classList.remove('hidden'); document.querySelector('label[for="account-new-password"]').classList.remove('hidden');
+  verificationField('account-code').required = false; verificationField('account-new-password').required = false;
   for (const id of ['account-code', 'account-new-password', 'account-recovery-code']) { const el = document.getElementById(id); if (el) el.value = ''; }
   for (const id of ['account-setup-secret', 'account-recovery-result']) { const el = document.getElementById(id); if (el) el.textContent = ''; }
   document.getElementById('account-factor-fields')?.classList.add('hidden'); passwordInput.value = ''; authError.classList.add('hidden');
@@ -2852,8 +2870,9 @@ document.getElementById('account-recovery-btn')?.addEventListener('click', async
     accountStage = 'setup'; accountChallenge = data.challenge;
     const staged = await sessionFetch('/api/auth/setup/start', { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge: accountChallenge }) });
     const details = await staged.json(); if (!staged.ok) throw new Error(details.error || '恢复初始化失败');
-    accountChallenge = details.challenge; document.getElementById('account-factor-fields').classList.remove('hidden'); document.getElementById('account-setup-secret').textContent = `请设置新密码并在认证器添加密钥：${details.secret}`;
-  } catch (error) { authError.textContent = error.message; authError.classList.remove('hidden'); }
+    if (epoch !== accountEpoch) return;
+    accountChallenge = details.challenge; showAccountFactorStep({ requirePassword: true }); document.getElementById('account-setup-secret').textContent = `请设置新密码并在认证器添加密钥：${details.secret}`;
+  } catch (error) { if (epoch === accountEpoch && error.name !== 'AbortError') { authError.textContent = error.message; authError.classList.remove('hidden'); } }
 });
 // Admin operations use an immutable request snapshot and a separate modal generation.
 function adminContext() { return { epoch: accountEpoch, generation: adminGeneration, actorId: accountUser?.id }; }
@@ -3082,7 +3101,7 @@ document.getElementById('registration-toggle').addEventListener('click', () => {
   passwordInput.autocomplete = enabled ? 'new-password' : 'current-password';
   passwordInput.placeholder = enabled ? '至少 8 位，含大小写、数字和特殊字符' : '输入密码';
 });
-for (const id of ['username-input', 'password-input', 'registration-email']) {
+for (const id of ['username-input', 'password-input']) {
   document.getElementById(id).addEventListener('input', () => {
     if (!registrationMode) return;
     registrationChallenge = null;
@@ -3092,13 +3111,13 @@ for (const id of ['username-input', 'password-input', 'registration-email']) {
 async function registerAccount() {
   const epoch = accountEpoch;
   if (authBtn.disabled) return;
-  const email = document.getElementById('registration-email');
+  const email = document.getElementById('username-input');
   if (!registrationChallenge && (!email.value.trim() || !email.reportValidity())) return;
   const body = registrationChallenge
     ? { challenge: registrationChallenge, code: document.getElementById('registration-code').value.trim() }
     : { password: passwordInput.value, email: email.value.trim() };
   authBtn.disabled = true;
-  const fields = ['password-input', 'registration-email', 'registration-code'].map(id => document.getElementById(id));
+  const fields = ['password-input', 'username-input', 'registration-code'].map(id => document.getElementById(id));
   fields.forEach(field => { field.disabled = true; });
   try {
     const response = await sessionFetch(`/api/auth/register/${registrationChallenge ? 'confirm' : 'start'}`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -3133,17 +3152,20 @@ async function registerAccount() {
 }
 async function verifyAccount() {
   if (registrationMode) return registerAccount();
+  if (authBtn.disabled) return;
   cancelSelfSecurityDelivery();
   const epoch = accountEpoch;
   const identifier = document.getElementById('username-input')?.value.trim(); const password = passwordInput?.value || '';
   const code = document.getElementById('account-code')?.value.trim();
-  const body = accountChallenge ? { challenge: accountChallenge } : { ...accountIdentifierPayload(identifier), password, ephemeral: Boolean(document.getElementById('account-ephemeral')?.checked) };
+  if (!accountChallenge && (!identifier || !document.getElementById('username-input').reportValidity())) return;
+  const body = accountChallenge ? { challenge: accountChallenge } : { ...accountIdentifierPayload(identifier), password };
   if (accountChallenge) { body.code = code; body.newPassword = document.getElementById('account-new-password')?.value || ''; }
   if (accountStage === 'setup' && !verificationField('account-new-password').classList.contains('hidden') && (body.newPassword.length < 8 || new TextEncoder().encode(body.newPassword).length > 1024)) {
     authError.textContent = '新密码至少需要 8 位，并包含大写字母、小写字母、数字和特殊字符'; authError.classList.remove('hidden'); return;
   }
   const route = accountChallenge ? (accountStage === 'mfa' ? '/api/auth/login/verify' : '/api/auth/setup/complete') : '/api/auth/login';
   const resultEl = document.getElementById('account-recovery-result'); if (resultEl) { resultEl.textContent = ''; resultEl.classList.add('hidden'); }
+  authBtn.disabled = true;
   try {
     const response = await sessionFetch(route, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Origin: location.origin }, body: JSON.stringify(body), cache: 'no-store' });
     const data = await response.json();
@@ -3151,11 +3173,7 @@ async function verifyAccount() {
     if (!response.ok) throw new Error(data.error || '登录失败');
     if (data.requiresSetup) {
       accountStage = 'setup'; accountChallenge = data.challenge;
-      verificationField('account-code-label').classList.remove('hidden'); verificationField('account-code').classList.remove('hidden'); verificationField('account-code').required = Boolean(data.requireFactor);
-      verificationField('account-code').classList.toggle('hidden', !data.requireFactor);
-      verificationField('account-code-label').classList.toggle('hidden', !data.requireFactor);
-      verificationField('account-code').required = Boolean(data.requireFactor);
-      verificationField('account-code-label').textContent = '动态验证码'; verificationField('account-code').placeholder = '六位动态验证码'; verificationField('account-new-password').classList.remove('hidden'); document.querySelector('label[for="account-new-password"]').classList.remove('hidden');
+      showAccountFactorStep({ requirePassword: Boolean(data.requirePassword), requireFactor: Boolean(data.requireFactor) });
       if (data.requireFactor) {
         const staged = await sessionFetch('/api/auth/setup/start', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge: accountChallenge }), cache: 'no-store' });
         const details = await staged.json(); if (!staged.ok) { resetAccountLogin(); throw new Error(details.error || '初始化失败'); } if (epoch !== accountEpoch) return; accountChallenge = details.challenge;
@@ -3163,19 +3181,22 @@ async function verifyAccount() {
       }
       document.getElementById('account-factor-fields')?.classList.remove('hidden'); authError.textContent = data.requireFactor ? '请输入动态验证码完成初始化' : '请输入新密码完成初始化'; authError.classList.remove('hidden'); return;
     }
-    if (data.requiresSecondFactor) { verificationField('account-code').classList.remove('hidden'); verificationField('account-code-label').classList.remove('hidden'); verificationField('account-code').required = true; accountStage = 'mfa'; accountChallenge = data.challenge; document.getElementById('account-factor-fields')?.classList.remove('hidden'); const email = data.factorMethod === 'email'; verificationField('account-code-label').textContent = email ? '邮箱验证码' : '动态验证码'; verificationField('account-code').placeholder = email ? '六位邮箱验证码' : '六位动态验证码'; verificationField('account-new-password').classList.add('hidden'); document.querySelector('label[for="account-new-password"]').classList.add('hidden'); passwordInput.value = ''; authError.textContent = email ? `验证码已发送至 ${data.emailHint || '绑定邮箱'}` : '请输入动态验证码'; authError.classList.remove('hidden'); return; }
+    if (data.requiresSecondFactor) { accountStage = 'mfa'; accountChallenge = data.challenge; const email = data.factorMethod === 'email'; showAccountFactorStep({ email, recovery: !email }); if (email) passwordInput.value = ''; authError.textContent = email ? `验证码已发送至 ${data.emailHint || '绑定邮箱'}` : '请输入动态验证码'; authError.classList.remove('hidden'); return; }
     accountStage = 'login'; accountChallenge = null; authError.classList.add('hidden');
     passwordInput.value = ''; document.getElementById('account-code').value = ''; document.getElementById('account-new-password').value = '';
     document.getElementById('account-setup-secret').textContent = '';
     if (data.requiresLogin) {
+      resetAccountLogin();
       const result = document.getElementById('account-recovery-result');
       result.textContent = data.recoveryCodes ? `仅显示一次，请立即安全保存恢复码，然后重新登录：${data.recoveryCodes.join(' / ')}` : '设置完成，请重新登录';
       result.classList.remove('hidden'); document.getElementById('account-factor-fields').classList.add('hidden'); return;
     }
     const me = await sessionFetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' }).then(r => r.json());
+    if (epoch !== accountEpoch) return;
     accountUser = me.user; accountSessionId = me.sessionId || null; userId = me.user?.id || null; accountCsrfToken = me.csrfToken || null; enrollmentPending = Boolean(me.requiresFactorSetup); enrollmentOptional = Boolean(me.optionalFactorSetup); enterChatMode();
     if (data.recoveryCodes) { const result = document.getElementById('account-recovery-result'); if (result) { result.textContent = `请立即保存恢复码：${data.recoveryCodes.join(', ')}`; result.classList.remove('hidden'); } }
-  } catch (error) { authError.textContent = error.message || '验证失败'; authError.classList.remove('hidden'); }
+  } catch (error) { if (epoch === accountEpoch && error.name !== 'AbortError') { authError.textContent = error.message || '验证失败'; authError.classList.remove('hidden'); } }
+  finally { if (epoch === accountEpoch) authBtn.disabled = false; }
 }
 
 async function verifyPassword(password, cachedUserId = null) {

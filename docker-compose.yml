@@ -14,6 +14,7 @@ services:
     # App drain budget is 25s; Docker must allow it to finish before SIGKILL.
     stop_grace_period: 35s
     environment:
+      - NODE_ENV=production
       - PORT=3000
       - ACCESS_PASSWORD=${ACCESS_PASSWORD:?ACCESS_PASSWORD is required}
       - EXPIRE_HOURS=${EXPIRE_HOURS:-720}

@@ -65,6 +65,7 @@ async function start() {
   let application;
   let quotaRuntime;
   try {
+  if (ACCOUNTS_MODE) await require('./src/security/bootstrap-admin').initializeAdmin({ db: security.db, repo: security.repo, env: process.env });
   if (ACCOUNTS_MODE) quotaRuntime = require('./src/quota-runtime').configureAccountQuota({ storage: require('./src/storage'), upload: require('./src/upload'), repo: security.repo, storageRoot: STORAGE_ROOT });
   // 检查运行模式变化
   await checkModeChange();

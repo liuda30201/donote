@@ -42,7 +42,7 @@ show_status() {
     openssl x509 -in "${CERT_DIR}/fullchain.pem" -noout -subject -issuer -dates -ext subjectAltName || true
     # 判据：issuer 里是否含 "Let's Encrypt"。
     # 早期版本用 `grep -q "CN *= *${DOMAIN}$"` 判断自签，但自签证书的 issuer
-    # 实际是 "CN = node.7705.work, O = web-clipboard, OU = self-signed"，
+    # 实际包含域名、O = web-clipboard、OU = self-signed，
     # 末尾是 self-signed 而非域名，锚定 $ 根本匹配不上 → 会把自签误报成正式证书。
     local issuer
     issuer="$(openssl x509 -in "${CERT_DIR}/fullchain.pem" -noout -issuer)"

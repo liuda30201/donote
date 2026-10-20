@@ -40,8 +40,8 @@
           <p class="subtitle">安静、私有的跨设备剪贴工作台</p>
         </div>
         <div class="auth-form">
-          <label for="username-input" class="auth-label hidden" id="username-label">邮箱或旧用户名</label>
-          <input type="text" id="username-input" class="hidden" placeholder="输入邮箱或旧用户名" autocomplete="username">
+          <label for="username-input" class="auth-label hidden" id="username-label">账号（邮箱）</label>
+          <input type="email" id="username-input" class="hidden" placeholder="name@example.com" autocomplete="username" inputmode="email" maxlength="254">
           <label for="password-input" class="auth-label">访问密码</label>
           <div class="password-field-wrapper">
             <input type="password" id="password-input" placeholder="输入访问密码" autocomplete="current-password" aria-describedby="password-help" autofocus>
@@ -83,18 +83,18 @@
             <input id="account-new-password" type="password" autocomplete="new-password" minlength="8" placeholder="新密码">
             <p id="account-setup-secret" role="status"></p>
           </div>
-          <div id="account-options" class="hidden">
-            <label class="checkbox-label"><input id="account-ephemeral" type="checkbox"><span>临时设备（不持久保存私有内容）</span></label>
+          <details id="account-advanced" class="hidden">
+            <summary>无法使用认证器？</summary>
+          <div id="account-options">
             <label for="account-recovery-code" class="auth-label">恢复码（认证器丢失时使用）</label>
             <input id="account-recovery-code" type="password" autocomplete="off" placeholder="仅恢复账号时填写">
             <button id="account-recovery-btn" class="btn" type="button">使用恢复码</button>
           </div>
+          </details>
           <p id="account-recovery-result" class="hidden" role="status"></p>
           <button id="account-reset-btn" class="btn hidden" type="button">返回登录</button>
           <div id="registration-fields" class="hidden">
             <p class="registration-note">注册需要验证邮箱；注册邮箱同时作为登录账号。完成验证后即可使用邮箱和密码登录。</p>
-            <label for="registration-email" class="auth-label">邮箱</label>
-            <input id="registration-email" type="email" autocomplete="email" maxlength="254" placeholder="name@example.com">
             <div id="registration-code-fields" class="hidden">
               <label for="registration-code" class="auth-label">邮箱验证码</label>
               <input id="registration-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="输入邮件中的六位验证码">

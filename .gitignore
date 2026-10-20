@@ -22,6 +22,11 @@ nginx/certs/*.p12
 data/
 .dev-data/
 backup/
+backups/
+.secrets/
+.letsencrypt/
+.letsencrypt-work/
+.letsencrypt-logs/
 data.rollback-*.tar.gz
 
 # ---- 运行时产物 ----
