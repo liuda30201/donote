@@ -207,5 +207,30 @@ const EMAIL_LOGIN_MIGRATION = {
     UPDATE registration_challenges SET blocked=1 WHERE consumed_at IS NULL;
   `
 };
-const ACCOUNT_MIGRATIONS = [SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION, EMAIL_LOGIN_MIGRATION];
-module.exports = { SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION, EMAIL_LOGIN_MIGRATION, ACCOUNT_MIGRATIONS };
+const EMAIL_CHALLENGE_PURPOSE_MIGRATION = {
+  version: 5,
+  name: 'email-code-login-challenge-purpose',
+  sql: `
+    CREATE TABLE email_challenges_new (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      code_hash TEXT NOT NULL,
+      purpose TEXT NOT NULL CHECK (purpose IN ('login','bind','reauth','email-code-login')),
+      session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+      target TEXT NOT NULL,
+      security_version INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      consumed_at INTEGER
+    ) STRICT;
+    INSERT INTO email_challenges_new (id,user_id,token_hash,code_hash,purpose,session_id,target,security_version,created_at,expires_at,attempts,consumed_at)
+      SELECT id,user_id,token_hash,code_hash,purpose,session_id,target,security_version,created_at,expires_at,attempts,consumed_at FROM email_challenges;
+    DROP TABLE email_challenges;
+    ALTER TABLE email_challenges_new RENAME TO email_challenges;
+    CREATE INDEX email_challenges_user ON email_challenges(user_id,purpose,created_at);
+  `
+};
+const ACCOUNT_MIGRATIONS = [SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION, EMAIL_LOGIN_MIGRATION, EMAIL_CHALLENGE_PURPOSE_MIGRATION];
+module.exports = { SECURITY_MIGRATION, EMAIL_MIGRATION, REGISTRATION_MIGRATION, EMAIL_LOGIN_MIGRATION, EMAIL_CHALLENGE_PURPOSE_MIGRATION, ACCOUNT_MIGRATIONS };

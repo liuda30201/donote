@@ -77,8 +77,10 @@ function createEmailVerification({repo,authService,mailer,encryptionKey,now=Date
   }
   function originCheck(req) { if(!authService) throw new AuthError(503,'AUTH_UNAVAILABLE'); authService.requireOrigin(req); }
   function check(token,code,{userId,purpose,sessionId=null,target}={}) {
+    const purposes=typeof purpose==='string'?[purpose]:Array.isArray(purpose)&&purpose.length>0&&purpose.every(value=>typeof value==='string'&&value.length>0)?purpose:null;
+    if(!purposes)throw fail();
     const row=repo.email.find(token,now());
-    if(!row||row.purpose!==purpose||row.session_id!==sessionId||(userId&&row.user_id!==userId)||(target!==undefined&&row.target!==JSON.stringify(target)))throw fail();
+    if(!row||!purposes.includes(row.purpose)||row.session_id!==sessionId||(userId&&row.user_id!==userId)||(target!==undefined&&row.target!==JSON.stringify(target)))throw fail();
     if(typeof code!=='string'||!/^\d{6}$/.test(code)||!p.constantTimeEqual(row.code_hash,codeHash(token,code))) {repo.email.failure(token);throw fail();}
     return row;
   }
