@@ -654,8 +654,7 @@ function saveAndApplyCardSize(size, { immediateSave = false } = {}) {
 
 function initCardSize() {
   const savedRaw = localStorage.getItem('web-clipboard-card-size');
-  // 若本地是旧版默认 320，迁移到新版居中默认 300，保证滑块默认在正中央
-  const initialSize = (!savedRaw || savedRaw === '320') ? CARD_SIZE_DEFAULT : clampCardSize(savedRaw);
+  const initialSize = savedRaw === null ? CARD_SIZE_DEFAULT : clampCardSize(savedRaw);
   applyCardSize(initialSize);
 
   if (cardSizeSlider) {
