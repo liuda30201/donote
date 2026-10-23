@@ -184,8 +184,28 @@ const scrollBottomBtn = document.getElementById('scroll-bottom-btn');
 const scrollBottomText = document.getElementById('scroll-bottom-text');
 const favoritesBadge = document.getElementById('favorites-badge');
 const currentUserEl = document.getElementById('current-user');
+const connectionPill = document.getElementById('connection-pill');
+const connectionDot = document.getElementById('connection-dot');
 const connectionStatus = document.getElementById('connection-status');
 const messageCount = document.getElementById('message-count');
+
+function updateConnectionIndicator(isConnected) {
+  const statusText = isConnected ? '实时同步：已连接' : '连接已断开，正在重连...';
+  if (connectionPill) {
+    connectionPill.classList.toggle('connected', isConnected);
+    connectionPill.classList.toggle('disconnected', !isConnected);
+    connectionPill.setAttribute('data-tooltip', statusText);
+    connectionPill.setAttribute('title', statusText);
+    connectionPill.setAttribute('aria-label', statusText);
+  }
+  if (connectionDot) {
+    connectionDot.className = isConnected ? 'connection-dot connected' : 'connection-dot disconnected';
+  }
+  if (connectionStatus) {
+    connectionStatus.textContent = isConnected ? '已连接' : '已断开';
+    connectionStatus.className = isConnected ? 'status sr-only connected' : 'status sr-only disconnected';
+  }
+}
 const expireInfo = document.getElementById('expire-info');
 const toastEl = document.getElementById('toast');
 const tabs = document.querySelectorAll('.tab');
@@ -5085,8 +5105,7 @@ if (scrollBottomBtn) {
 }
 
 socket.on('connect', () => {
-  connectionStatus.textContent = '已连接';
-  connectionStatus.className = 'status connected';
+  updateConnectionIndicator(true);
   if (!isAuthenticated) return;
 
   // 多用户模式下重连需要重新加入房间
@@ -5104,8 +5123,10 @@ socket.on('session-revoked', () => {
   logout(false, false, false, Boolean(expected));
 });
 socket.on('disconnect', () => {
-  connectionStatus.textContent = '已断开';
-  connectionStatus.className = 'status disconnected';
+  updateConnectionIndicator(false);
+});
+socket.on('connect_error', () => {
+  updateConnectionIndicator(false);
 });
 
 socket.on('sync', (data) => {

@@ -1072,42 +1072,144 @@ a:focus-visible,
 }
 
 .connection-pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 32px;
   height: 32px;
-  padding: 0 10px;
-  border-radius: var(--radius-full);
+  padding: 0;
+  border-radius: var(--radius-sm);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-xs);
-  font-size: 0.75rem;
   color: var(--text-muted);
   user-select: none;
   flex-shrink: 0;
   box-sizing: border-box;
+  cursor: default;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.connection-pill:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.connection-pill.disconnected {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border-subtle));
+  background: color-mix(in srgb, var(--bg-surface) 92%, var(--danger) 8%);
+  color: var(--danger);
 }
 
 .connection-dot {
-  width: 7px;
-  height: 7px;
+  position: relative;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--success);
   flex-shrink: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 24%, transparent);
 }
 
+.connection-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--success);
+  opacity: 0;
+  animation: connectionPulseRing 2.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@keyframes connectionPulseRing {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.75;
+  }
+  75% {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.45);
+    opacity: 0;
+  }
+}
+
+.connection-pill.disconnected .connection-dot,
 .connection-dot.disconnected {
-  background: var(--danger);
+  display: none;
 }
 
-.status {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-.status.disconnected {
+.connection-unplug-icon {
+  display: none;
   color: var(--danger);
+  flex-shrink: 0;
+  animation: connectionUnplugBlink 1.8s ease-in-out infinite;
+}
+
+.connection-pill.disconnected .connection-unplug-icon {
+  display: block;
+}
+
+@keyframes connectionUnplugBlink {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+}
+
+/* 悬浮提示气泡：鼠标移上去显示状态字符 */
+.connection-pill::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity var(--transition-fast), transform var(--transition-fast), visibility var(--transition-fast);
+  z-index: 60;
+}
+
+.connection-pill.disconnected::after {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border-strong));
+}
+
+.connection-pill:hover::after,
+.connection-pill:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.status.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .topbar-icon-btn {

@@ -153,6 +153,33 @@ test('顶部搜索框已合并为统一全局搜索（移除全部/备注切换�
     /function syncSearchAdornments\(\)/,
     'app.js 应通过 syncSearchAdornments 同步控制清除按钮与快捷键徽章显隐'
   );
+
+  // 6. 右上角连接状态移除常驻中文字符，改为绿色动态呼吸图标 / 断电插头图标，鼠标悬停显示状态文字
+  assert.match(
+    appHtml,
+    /id="connection-unplug-icon"/,
+    'app.html 应包含断电插头 SVG 图标 #connection-unplug-icon'
+  );
+  assert.match(
+    appHtml,
+    /id="connection-status"\s+class="status sr-only connected"/,
+    'app.html 中 #connection-status 应设为 sr-only 不直接显示常驻中文字符'
+  );
+  assert.match(
+    styleCss,
+    /@keyframes connectionPulseRing/,
+    'style.css 应包含连接状态绿色动态呼吸动画 @keyframes connectionPulseRing'
+  );
+  assert.match(
+    styleCss,
+    /\.connection-pill::after[\s\S]*?content:\s*attr\(data-tooltip\)/,
+    'style.css 应支持鼠标悬停显示 data-tooltip 状态文字气泡'
+  );
+  assert.match(
+    appJs,
+    /function updateConnectionIndicator\(isConnected\)/,
+    'app.js 应包含连接状态图标与悬浮提示同步函数 updateConnectionIndicator'
+  );
 });
 
 
