@@ -34,7 +34,10 @@ test('消息与文件路由在独立数据目录中保持原有行为', async (t
   await t.test('登录、静态资源与未知 API', async () => {
     const landing = await fetch(base + '/');
     assert.equal(landing.status, 200);
-    assert.match(await landing.text(), /DoNote.*复制过的内容，在这里继续/);
+    const landingHtml = await landing.text();
+    assert.match(landingHtml, /DoNote.*复制过的内容，在这里继续/);
+    assert.match(landingHtml, /进入工作台/);
+    assert.match(landingHtml, /支持邮箱验证码自主注册登录/);
     const loginPage = await fetch(base + '/login');
     assert.equal(loginPage.status, 200);
     assert.match(await loginPage.text(), /id="auth-section"/);
