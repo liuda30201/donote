@@ -5196,10 +5196,13 @@ socket.on('message-sensitive', (msg) => {
 
 
 socket.on('message-private', (msg) => {
-  if (!isAuthenticated || !msg?.id) return;
-  const update = item => item.id === msg.id ? { ...item, ...msg } : item;
+  if (!isAuthenticated || !msg?.id || typeof msg.private !== 'boolean') return;
+  if (!msg.private) privateCardUnlockExpiresAt.delete(msg.id);
+  const update = item => item.id === msg.id ? { ...item, ...msg, private: msg.private } : item;
   messages = messages.map(update); favorites = favorites.map(update);
+  if (Array.isArray(searchState.results)) searchState.results = searchState.results.map(update);
   renderMessages(); if (currentTab === 'favorites') renderFavorites();
+  if (searchState.active) renderSearchResults();
 });
 
 socket.on('messages-clear', (data) => {
