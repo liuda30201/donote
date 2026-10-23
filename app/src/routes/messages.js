@@ -319,11 +319,17 @@ const handleUpdateTitle = async (req, res) => {
     if (!current) throw Object.assign(new Error('not found'), { status: 404 });
     if (title) current.title = title;
     else delete current.title;
+    if (title) {
+      if (!Array.isArray(candidate.groups)) candidate.groups = [];
+      if (!candidate.groups.includes(title)) candidate.groups.push(title);
+    }
   });
-  const committed = getUserState(userId).messages.find(item => item.id === id);
+  const newState = getUserState(userId);
+  const committed = newState.messages.find(item => item.id === id);
   const publicMessage = toPublicMessage(committed, userId);
   req.app.get('io').broadcastTitle(userId, { id, title: publicMessage.title || '', message: publicMessage });
-  return res.json({ success: true, message: publicMessage });
+  if (title) req.app.get('io').broadcastGroups(userId, { groups: newState.groups || [] });
+  return res.json({ success: true, message: publicMessage, groups: newState.groups || [] });
 };
 router.patch('/:id/title', requireAuth, handleUpdateTitle);
 router.post('/:id/title', requireAuth, handleUpdateTitle);
@@ -337,7 +343,7 @@ router.get('/groups', requireAuth, (req, res) => {
 
 // 新增分组
 router.post('/groups', requireAuth, async (req, res) => {
-  const name = typeof req.body.name === 'string' ? req.body.name.trim().slice(0, 30) : '';
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 30) : '';
   if (!name) return res.status(400).json({ code: 'INVALID_NAME' });
   const state = getUserState(req.userId);
   if ((state.groups || []).includes(name)) return res.json({ groups: state.groups });

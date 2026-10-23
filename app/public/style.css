@@ -1772,6 +1772,80 @@ a:focus-visible,
   background: var(--accent-soft);
 }
 
+.viewer-remark-text {
+  cursor: pointer;
+}
+
+.viewer-remark-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.viewer-remark-editor.hidden {
+  display: none !important;
+}
+
+.viewer-remark-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-border, var(--border-strong));
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.viewer-remark-input:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.viewer-remark-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.viewer-remark-action-btn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.74rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.viewer-remark-action-btn.primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.viewer-remark-action-btn.primary:hover {
+  opacity: 0.92;
+}
+
+.viewer-remark-action-btn.secondary {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
+.viewer-remark-action-btn.secondary:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
 /* 桌面端 dock 两侧快捷键淡提示：左 Ctrl+C / 右 Ctrl+V */
 .dock-side-hint {
   position: fixed;
@@ -3050,22 +3124,22 @@ a:focus-visible,
   backdrop-filter: saturate(160%) blur(8px);
   -webkit-backdrop-filter: saturate(160%) blur(8px);
   z-index: 4;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   pointer-events: auto;
   opacity: 1;
   transition: opacity var(--transition-fast);
 }
 
-/* 底部常驻备注入口按钮 */
+/* 底部常驻分组与备注入口按钮 */
 .card-remark-entry {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  max-width: 50%;
+  max-width: 100%;
   padding: 2px 8px;
   border: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--bg-surface) 75%, transparent);
@@ -3078,6 +3152,14 @@ a:focus-visible,
   cursor: pointer;
   opacity: 0.75;
   transition: all var(--transition-fast);
+}
+
+.paste-card-meta .card-title-entry {
+  justify-self: center;
+}
+
+.paste-card-meta .card-remark-entry:not(.card-title-entry) {
+  justify-self: end;
 }
 
 .card-remark-entry:hover {

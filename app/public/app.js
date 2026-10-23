@@ -544,8 +544,13 @@ const categoryDividerEl = document.getElementById('category-divider');
 function renderCategoryChips() {
   if (!categoryChipsEl) return;
   const allMsgs = [...messages, ...favorites];
-  // 用管理好的分组列表 + 统计每个分组的卡片数
-  const cats = userGroups.map(name => ({
+  // 合并服务端分组列表与消息中已使用的分组名，统计每个分组的卡片数
+  const groupNameSet = new Set(userGroups);
+  for (const m of allMsgs) {
+    const t = typeof m?.title === 'string' ? m.title.trim() : '';
+    if (t) groupNameSet.add(t);
+  }
+  const cats = [...groupNameSet].map(name => ({
     name,
     count: allMsgs.filter(m => m.title === name).length
   })).filter(c => c.count > 0);
@@ -1723,23 +1728,6 @@ function createMessageElement(msg, isFavoritesView = false) {
   titleEl.textContent = msg.title || '';
   headerLeftEl.appendChild(titleEl);
 
-  if (msg.title) {
-    // 分类（文本/代码/链接/图片/文件）始终常驻保留；分组（如 A项目/B项目/自用）作为独立彩色胶囊并排展示，互不冲突
-    const { bg, text: textColor, dot } = remarkToColor(msg.title);
-    const tag = document.createElement('span');
-    tag.className = 'paste-card-category-tag';
-    tag.style.cssText = `background:${bg};color:${textColor};flex-shrink:0;`;
-    tag.title = `分组：${msg.title} · 点击筛选`;
-    tag.innerHTML = `<span class="paste-card-category-tag-dot" style="background:${dot}"></span>${escapeHTML(msg.title)}`;
-    tag.addEventListener('click', (e) => {
-      e.stopPropagation();
-      currentCategoryFilter = currentCategoryFilter === msg.title ? null : msg.title;
-      renderCategoryChips();
-      renderMessages({ scrollBottom: true });
-    });
-    labelsEl.insertBefore(tag, headerTimeEl);
-  }
-
   const actionsEl = document.createElement('div');
   actionsEl.className = 'message-actions';
 
@@ -1760,25 +1748,6 @@ function createMessageElement(msg, isFavoritesView = false) {
     toggleFavorite(msg.id, !msg.favorite);
   });
   actionsEl.appendChild(favoriteBtn);
-
-  // 备注按钮（铅笔图标，有备注时高亮）
-  const remarkBtn = document.createElement('button');
-  remarkBtn.type = 'button';
-  remarkBtn.className = 'card-icon-btn card-secondary-action message-remark-action';
-  if (msg.remark) remarkBtn.classList.add('active');
-  remarkBtn.title = msg.remark ? `备注：${msg.remark}` : '添加备注';
-  remarkBtn.setAttribute('aria-label', msg.remark ? '修改备注' : '添加备注');
-  remarkBtn.innerHTML = `
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-    </svg>
-  `;
-  remarkBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openRemarkModal(msg);
-  });
-  actionsEl.appendChild(remarkBtn);
 
   if (msg.sensitive && currentMode === 'accounts') {
     const sensitiveBtn = document.createElement('button'); sensitiveBtn.type = 'button'; sensitiveBtn.className = 'card-icon-btn card-secondary-action'; sensitiveBtn.title = '取消敏感标记'; sensitiveBtn.setAttribute('aria-label', sensitiveBtn.title); sensitiveBtn.textContent = 'S';
@@ -1877,14 +1846,14 @@ function createMessageElement(msg, isFavoritesView = false) {
   titleEntryBtn.addEventListener('click', (e) => { e.stopPropagation(); openTitleModal(msg); });
   metaFooterEl.appendChild(titleEntryBtn);
 
-  // 底部常驻备注入口（淡显，点击打开备注弹窗）
+  // 底部常驻备注入口（淡显，最多显示 10 个字符，点击打开备注弹窗）
   const remarkEntryBtn = document.createElement('button');
   remarkEntryBtn.type = 'button';
   remarkEntryBtn.className = 'card-remark-entry' + (msg.remark ? ' has-remark' : '');
   remarkEntryBtn.title = msg.remark ? `备注：${msg.remark} · 点击修改` : '添加备注';
   remarkEntryBtn.setAttribute('aria-label', msg.remark ? '修改备注' : '添加备注');
   remarkEntryBtn.innerHTML = msg.remark
-    ? `<span class="card-remark-entry-dot"></span><span class="card-remark-entry-text">${escapeHTML(msg.remark)}</span>`
+    ? `<span class="card-remark-entry-dot"></span><span class="card-remark-entry-text">${escapeHTML(formatCardRemarkPreview(msg.remark))}</span>`
     : '<span class="card-remark-entry-plus">+</span><span>备注</span>';
   remarkEntryBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2518,6 +2487,13 @@ function updateSingleMessageFavorite(id, favorite) {
   }
 }
 
+function formatCardRemarkPreview(remark) {
+  const clean = typeof remark === 'string' ? remark.replace(/\s+/g, ' ').trim() : '';
+  if (!clean) return '';
+  const chars = Array.from(clean);
+  return chars.length > 10 ? `${chars.slice(0, 10).join('')}...` : clean;
+}
+
 function updateSingleMessageRemark(id, remark) {
   const cleanRemark = typeof remark === 'string' ? remark : '';
   const msgInList = messages.find((m) => m.id === id);
@@ -2530,22 +2506,14 @@ function updateSingleMessageRemark(id, remark) {
     const msgEl = container.querySelector(`.message[data-id="${CSS.escape(id)}"]`);
     if (!msgEl) return;
 
-    // 更新备注按钮状态
-    const remarkBtn = msgEl.querySelector('.message-remark-action');
-    if (remarkBtn) {
-      remarkBtn.classList.toggle('active', Boolean(cleanRemark));
-      remarkBtn.title = cleanRemark ? `备注：${cleanRemark}` : '添加备注';
-      remarkBtn.setAttribute('aria-label', cleanRemark ? '修改备注' : '添加备注');
-    }
-
-    // 同步底部备注入口按钮（不含 card-title-entry）
+    // 同步底部备注入口按钮（不含 card-title-entry，最多显示 10 个字符）
     const entryBtns = msgEl.querySelectorAll('.card-remark-entry:not(.card-title-entry)');
     entryBtns.forEach(entryBtn => {
       entryBtn.classList.toggle('has-remark', Boolean(cleanRemark));
       entryBtn.title = cleanRemark ? `备注：${cleanRemark} · 点击修改` : '添加备注';
       entryBtn.setAttribute('aria-label', cleanRemark ? '修改备注' : '添加备注');
       entryBtn.innerHTML = cleanRemark
-        ? `<span class="card-remark-entry-dot"></span><span class="card-remark-entry-text">${escapeHTML(cleanRemark)}</span>`
+        ? `<span class="card-remark-entry-dot"></span><span class="card-remark-entry-text">${escapeHTML(formatCardRemarkPreview(cleanRemark))}</span>`
         : '<span class="card-remark-entry-plus">+</span><span>备注</span>';
     });
   };
@@ -2567,40 +2535,10 @@ function updateSingleMessageTitle(id, title) {
     const msgEl = container.querySelector(`.message[data-id="${CSS.escape(id)}"]`);
     if (!msgEl) return;
 
-    // 更新 header 分组 chip（保留原有的分类名 typeLabelEl，两者并排展示不冲突）
-    const labelsEl = msgEl.querySelector('.paste-card-labels');
-    if (labelsEl) {
-      const existingTag = labelsEl.querySelector('.paste-card-category-tag');
-      const typeLabelEl = labelsEl.querySelector('.paste-card-type-label');
-      const timeEl = labelsEl.querySelector('.paste-card-header-time');
-      if (typeLabelEl) typeLabelEl.classList.remove('hidden');
-      if (cleanTitle) {
-        const { bg, text: textColor, dot } = remarkToColor(cleanTitle);
-        if (existingTag) {
-          existingTag.style.cssText = `background:${bg};color:${textColor};flex-shrink:0;`;
-          existingTag.title = `分组：${cleanTitle} · 点击筛选`;
-          existingTag.innerHTML = `<span class="paste-card-category-tag-dot" style="background:${dot}"></span>${escapeHTML(cleanTitle)}`;
-        } else {
-          const tag = document.createElement('span');
-          tag.className = 'paste-card-category-tag';
-          tag.style.cssText = `background:${bg};color:${textColor};flex-shrink:0;`;
-          tag.title = `分组：${cleanTitle} · 点击筛选`;
-          tag.innerHTML = `<span class="paste-card-category-tag-dot" style="background:${dot}"></span>${escapeHTML(cleanTitle)}`;
-          tag.addEventListener('click', (e) => {
-            e.stopPropagation();
-            currentCategoryFilter = currentCategoryFilter === cleanTitle ? null : cleanTitle;
-            renderCategoryChips();
-            renderMessages({ scrollBottom: true });
-          });
-          if (timeEl) labelsEl.insertBefore(tag, timeEl);
-          else labelsEl.appendChild(tag);
-        }
-      } else {
-        if (existingTag) existingTag.remove();
-      }
-    }
+    const titleEl = msgEl.querySelector('.paste-card-title');
+    if (titleEl) titleEl.textContent = cleanTitle;
 
-    // 同步底部分组入口按钮（文案统一为“分组”）
+    // 同步底部中间分组入口按钮（文案统一为“分组”）
     const titleEntryBtn = msgEl.querySelector('.card-title-entry');
     if (titleEntryBtn) {
       titleEntryBtn.classList.toggle('has-remark', Boolean(cleanTitle));
@@ -5294,7 +5232,10 @@ let userGroups = []; // 从服务端加载的分组列表
 
 async function loadGroups() {
   try {
-    const r = await authFetch('/api/messages/groups');
+    const params = new URLSearchParams();
+    if (currentMode === 'multi' && userId) params.set('userId', userId);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const r = await authFetch(`/api/messages/groups${qs}`);
     if (r.ok) { const d = await r.json(); userGroups = d.groups || []; renderCategoryChips(); }
   } catch {}
 }
@@ -5306,17 +5247,22 @@ function openTitleModal(msg) {
   if (groupPickerNewInput) groupPickerNewInput.value = '';
   renderGroupPickerList(msg.title || '');
   titleModal.classList.remove('hidden');
+  setTimeout(() => { groupPickerNewInput?.focus(); }, 50);
 }
 
 function renderGroupPickerList(selectedTitle) {
   if (!groupPickerList) return;
   groupPickerList.innerHTML = '';
-  if (userGroups.length === 0) {
+  const allGroupNames = [...new Set([
+    ...userGroups,
+    ...[...messages, ...favorites].map(m => (typeof m?.title === 'string' ? m.title.trim() : '')).filter(Boolean)
+  ])];
+  if (allGroupNames.length === 0) {
     groupPickerList.innerHTML = '<p style="color:var(--text-muted);font-size:0.82rem;padding:8px 0;margin:0">暂无分组，在下方新建一个</p>';
     return;
   }
-  userGroups.forEach(name => {
-    const { bg, text: textColor, dot } = remarkToColor(name);
+  allGroupNames.forEach(name => {
+    const { dot } = remarkToColor(name);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'group-picker-item' + (name === selectedTitle ? ' active' : '');
@@ -5332,10 +5278,16 @@ function renderGroupPickerList(selectedTitle) {
 
 async function applyTitle(msgId, title) {
   try {
-    const r = await authFetch(`/api/messages/${encodeURIComponent(msgId)}/title`, {
+    const params = new URLSearchParams();
+    if (currentMode === 'multi' && userId) params.set('userId', userId);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const r = await authFetch(`/api/messages/${encodeURIComponent(msgId)}/title${qs}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title })
     });
     if (!r.ok) { showToast('设置失败'); return; }
+    const d = await r.json().catch(() => ({}));
+    if (Array.isArray(d.groups)) userGroups = d.groups;
+    else if (title && !userGroups.includes(title)) userGroups.push(title);
     updateSingleMessageTitle(msgId, title);
     closeTitleModal();
     showToast(title ? `已归入 ${title}` : '已移出分组');
@@ -5349,10 +5301,19 @@ function closeTitleModal() {
 
 groupPickerAddBtn?.addEventListener('click', async () => {
   const name = groupPickerNewInput?.value.trim();
-  if (!name) return;
-  await addGroup(name);
+  if (!name) {
+    showToast('请输入分组名称');
+    groupPickerNewInput?.focus();
+    return;
+  }
+  const ok = await addGroup(name);
+  if (!ok) return;
   if (groupPickerNewInput) groupPickerNewInput.value = '';
-  renderGroupPickerList(currentTitleMessage?.title || '');
+  if (currentTitleMessage) {
+    await applyTitle(currentTitleMessage.id, name);
+  } else {
+    renderGroupPickerList('');
+  }
 });
 
 groupPickerNewInput?.addEventListener('keydown', (e) => {
@@ -5378,6 +5339,7 @@ function openGroupsManager() {
   renderGroupsManagerList();
   if (groupsManagerNewInput) groupsManagerNewInput.value = '';
   groupsManagerModal.classList.remove('hidden');
+  setTimeout(() => { groupsManagerNewInput?.focus(); }, 50);
 }
 
 function closeGroupsManager() {
@@ -5392,11 +5354,15 @@ function closeGroupsManager() {
 function renderGroupsManagerList() {
   if (!groupsManagerList) return;
   groupsManagerList.innerHTML = '';
-  if (userGroups.length === 0) {
+  const allGroupNames = [...new Set([
+    ...userGroups,
+    ...[...messages, ...favorites].map(m => (typeof m?.title === 'string' ? m.title.trim() : '')).filter(Boolean)
+  ])];
+  if (allGroupNames.length === 0) {
     groupsManagerList.innerHTML = '<p style="color:var(--text-muted);font-size:0.82rem;padding:8px 0;margin:0">暂无分组</p>';
     return;
   }
-  userGroups.forEach(name => {
+  allGroupNames.forEach(name => {
     const { dot } = remarkToColor(name);
     const row = document.createElement('div');
     row.className = 'groups-manager-row';
@@ -5421,27 +5387,66 @@ function renderGroupsManagerList() {
 }
 
 async function addGroup(name) {
+  const cleanName = typeof name === 'string' ? name.trim().slice(0, 30) : '';
+  if (!cleanName) {
+    showToast('分组名不能为空');
+    return false;
+  }
   try {
-    const r = await authFetch('/api/messages/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    if (r.ok) { const d = await r.json(); userGroups = d.groups || []; renderCategoryChips(); }
-    else { const d = await r.json(); showToast(d.code === 'INVALID_NAME' ? '分组名不能为空' : '新建失败'); }
-  } catch { showToast('操作失败，请重试'); }
+    const params = new URLSearchParams();
+    if (currentMode === 'multi' && userId) params.set('userId', userId);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const r = await authFetch(`/api/messages/groups${qs}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: cleanName })
+    });
+    if (r.ok) {
+      const d = await r.json();
+      userGroups = Array.isArray(d.groups) ? d.groups : [...new Set([...userGroups, cleanName])];
+      renderCategoryChips();
+      return true;
+    }
+    const d = await r.json().catch(() => ({}));
+    showToast(d.code === 'INVALID_NAME' ? '分组名不能为空' : '新建失败');
+    return false;
+  } catch {
+    showToast('操作失败，请重试');
+    return false;
+  }
 }
 
 async function deleteGroup(name) {
   try {
-    const r = await authFetch(`/api/messages/groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    if (r.ok) { const d = await r.json(); userGroups = d.groups || []; if (currentCategoryFilter === name) { currentCategoryFilter = null; } renderMessages(); renderCategoryChips(); }
+    const params = new URLSearchParams();
+    if (currentMode === 'multi' && userId) params.set('userId', userId);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const r = await authFetch(`/api/messages/groups/${encodeURIComponent(name)}${qs}`, { method: 'DELETE' });
+    if (r.ok) {
+      const d = await r.json();
+      userGroups = d.groups || [];
+      messages.forEach(m => { if (m.title === name) delete m.title; });
+      favorites.forEach(f => { if (f.title === name) delete f.title; });
+      if (currentCategoryFilter === name) { currentCategoryFilter = null; }
+      renderMessages();
+      renderCategoryChips();
+    }
     else showToast('删除失败');
   } catch { showToast('操作失败，请重试'); }
 }
 
 groupsManagerAddBtn?.addEventListener('click', async () => {
   const name = groupsManagerNewInput?.value.trim();
-  if (!name) return;
-  await addGroup(name);
+  if (!name) {
+    showToast('请输入分组名称');
+    groupsManagerNewInput?.focus();
+    return;
+  }
+  const ok = await addGroup(name);
+  if (!ok) return;
   if (groupsManagerNewInput) groupsManagerNewInput.value = '';
   renderGroupsManagerList();
+  showToast(`已新建分组 ${name}`);
 });
 groupsManagerNewInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); groupsManagerAddBtn?.click(); } });
 groupsManagerClose?.addEventListener('click', closeGroupsManager);
@@ -5765,17 +5770,132 @@ function resetImageZoom() {
   updateImageZoomTransform();
 }
 
+function exitViewerRemarkEdit(prefix) {
+  const barEl = document.getElementById(`${prefix}-remark-bar`);
+  const textEl = document.getElementById(`${prefix}-remark-text`);
+  const btnEl = document.getElementById(`${prefix}-remark-btn`);
+  const editorEl = document.getElementById(`${prefix}-remark-editor`);
+  barEl?.classList.remove('is-editing');
+  textEl?.classList.remove('hidden');
+  btnEl?.classList.remove('hidden');
+  editorEl?.classList.add('hidden');
+}
+
+function enterViewerRemarkEdit(prefix, msg) {
+  if (!msg) return;
+  const barEl = document.getElementById(`${prefix}-remark-bar`);
+  const textEl = document.getElementById(`${prefix}-remark-text`);
+  const btnEl = document.getElementById(`${prefix}-remark-btn`);
+  const editorEl = document.getElementById(`${prefix}-remark-editor`);
+  const inputEl = document.getElementById(`${prefix}-remark-input`);
+  if (!editorEl || !inputEl) return;
+
+  barEl?.classList.add('is-editing');
+  textEl?.classList.add('hidden');
+  btnEl?.classList.add('hidden');
+  editorEl.classList.remove('hidden');
+  inputEl.value = typeof msg.remark === 'string' ? msg.remark : '';
+  setTimeout(() => {
+    inputEl.focus();
+    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+  }, 20);
+}
+
+async function saveViewerInlineRemark(prefix, msg) {
+  if (!msg) return;
+  const inputEl = document.getElementById(`${prefix}-remark-input`);
+  const saveBtnEl = document.getElementById(`${prefix}-remark-save`);
+  if (!inputEl) return;
+
+  const remarkToSave = inputEl.value.trim();
+  try {
+    if (saveBtnEl) {
+      saveBtnEl.disabled = true;
+      saveBtnEl.textContent = '保存中...';
+    }
+    const params = new URLSearchParams();
+    if (currentMode === 'multi' && userId) {
+      params.set('userId', userId);
+    }
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const headers = { 'Content-Type': 'application/json' };
+    if (msg.sensitive) {
+      const credentials = await sensitiveCredentials('请输入密码以修改敏感文本备注');
+      if (!credentials) return;
+      const reauth = await authFetch(`/api/messages/${encodeURIComponent(msg.id)}/sensitive/reauth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remark', ...credentials })
+      });
+      if (!reauth.ok) throw new Error('敏感文本验证失败');
+      const grant = await reauth.json();
+      headers['X-Sensitive-Grant'] = grant.token;
+    }
+
+    const res = await authFetch(`/api/messages/${encodeURIComponent(msg.id)}/remark${qs}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ remark: remarkToSave })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || '保存备注失败');
+    }
+
+    msg.remark = remarkToSave;
+    exitViewerRemarkEdit(prefix);
+    updateSingleMessageRemark(msg.id, remarkToSave);
+    renderCategoryChips();
+    showToast(remarkToSave ? '备注已保存' : '备注已清除');
+  } catch (error) {
+    console.error('保存备注错误:', error);
+    showToast(error.message || '保存备注失败');
+  } finally {
+    if (saveBtnEl) {
+      saveBtnEl.disabled = false;
+      saveBtnEl.textContent = '保存';
+    }
+  }
+}
+
 function renderViewerRemarkBar(prefix, msg) {
   const textEl = document.getElementById(`${prefix}-remark-text`);
   const btnEl = document.getElementById(`${prefix}-remark-btn`);
+  const inputEl = document.getElementById(`${prefix}-remark-input`);
+  const saveBtnEl = document.getElementById(`${prefix}-remark-save`);
+  const cancelBtnEl = document.getElementById(`${prefix}-remark-cancel`);
   const remark = typeof msg?.remark === 'string' ? msg.remark.trim() : '';
+
+  exitViewerRemarkEdit(prefix);
+
   if (textEl) {
     textEl.textContent = remark || '暂无备注说明';
     textEl.classList.toggle('is-empty', !remark);
+    textEl.title = '点击直接编辑备注';
+    textEl.onclick = () => { if (msg) enterViewerRemarkEdit(prefix, msg); };
   }
   if (btnEl) {
     btnEl.textContent = remark ? '编辑备注' : '+ 添加备注';
-    btnEl.onclick = () => { if (msg) openRemarkModal(msg); };
+    btnEl.onclick = () => { if (msg) enterViewerRemarkEdit(prefix, msg); };
+  }
+  if (saveBtnEl) {
+    saveBtnEl.onclick = () => { if (msg) saveViewerInlineRemark(prefix, msg); };
+  }
+  if (cancelBtnEl) {
+    cancelBtnEl.onclick = () => { exitViewerRemarkEdit(prefix); };
+  }
+  if (inputEl) {
+    inputEl.onkeydown = (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (msg) saveViewerInlineRemark(prefix, msg);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        exitViewerRemarkEdit(prefix);
+      }
+    };
   }
 }
 

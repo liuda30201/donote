@@ -74,6 +74,10 @@ test('消息与文件路由在独立数据目录中保持原有行为', async (t
     while (hasPendingPersist()) await new Promise((resolve) => setTimeout(resolve, 10));
     const persisted = JSON.parse(await fs.readFile(path.join(storageRoot, 'messages.json'), 'utf8'));
     assert.equal(persisted.messages.some((message) => message.id === messageId), true);
+    assert.equal((await jsonRequest('/api/messages/groups', 'POST', { name: 'a项目' })).status, 200);
+    const groupsRes = await (await fetch(base + '/api/messages/groups', { headers: credentials })).json();
+    assert.equal(groupsRes.groups.includes('a项目'), true);
+    assert.equal((await jsonRequest(`/api/messages/${messageId}/title`, 'PATCH', { title: 'a项目' })).status, 200);
     assert.equal((await jsonRequest(`/api/messages/${messageId}/remark`, 'PATCH', { remark: '测试备注' })).status, 200);
     const search = await (await fetch(base + '/api/messages/search?q=' + encodeURIComponent('测试备注'), { headers: credentials })).json();
     assert.equal(search.messages[0].id, messageId);
