@@ -3,7 +3,7 @@ const p = require('./primitives');
 const { AuthError } = require('./auth-service');
 
 const ACTIONS = new Set(['session.revoke', 'session.revoke-others', 'session.revoke-all', 'history.read-details', 'password.change', 'factor.replace', 'factor.disable']);
-const EMAIL_REAUTH_ACTIONS = new Set([...ACTIONS, 'verification.change', 'sensitive']);
+const EMAIL_REAUTH_ACTIONS = new Set([...ACTIONS, 'verification.change', 'sensitive', 'private']);
 function createOperationsService({ authService, repo, encryptionKey, keyId, maxPasswordConcurrency = 1, now = Date.now }) {
   if (!Buffer.isBuffer(encryptionKey) || encryptionKey.length !== 32 || typeof keyId !== 'string' || !keyId) throw new TypeError('Explicit encryption key and keyId required');
   if (!authService || !repo || !Number.isInteger(maxPasswordConcurrency) || maxPasswordConcurrency < 1 || maxPasswordConcurrency > 3) throw new TypeError('Explicit operations dependencies required');

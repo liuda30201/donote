@@ -26,6 +26,8 @@
 | 配置 accounts 模式的邮件验证码 | [邮件验证码](docs/email-verification.md) |
 | accounts 数据与安全边界 | [多用户数据保护设计](docs/donote-multiuser-data-protection.md) |
 | 项目演进计划 | [功能规划](docs/feature-planning.md) |
+| 隐私区域（v2 预留设计） | [隐私区域设计方案](docs/private-zone-design.md) |
+| 备注与分类系统重设计（v2 预留） | [备注与分类设计方案](docs/remark-title-redesign.md) |
 | 本地改动与上游资料的关系 | [上游来源](docs/upstream/README.local.md) |
 | 隔离环境中的发布验收记录 | [发布验证](docs/final-release-validation.md) |
 

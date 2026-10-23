@@ -66,6 +66,36 @@ const socketHelper = {
     } else {
       this.io.emit('message-remark', data);
     }
+  },
+
+  // 广播隐私状态变更
+  broadcastPrivate(userId, data) {
+    if (this.sessionBroadcast) return this.sessionBroadcast(userId, 'message-private', data);
+    if (MULTI_USER_MODE && userId) {
+      this.io.to(userId).emit('message-private', data);
+    } else {
+      this.io.emit('message-private', data);
+    }
+  },
+
+  // 广播分类标题变更
+  broadcastTitle(userId, data) {
+    if (this.sessionBroadcast) return this.sessionBroadcast(userId, 'message-title', data);
+    if (MULTI_USER_MODE && userId) {
+      this.io.to(userId).emit('message-title', data);
+    } else {
+      this.io.emit('message-title', data);
+    }
+  },
+
+  // 广播分组列表变更
+  broadcastGroups(userId, data) {
+    if (this.sessionBroadcast) return this.sessionBroadcast(userId, 'groups-update', data);
+    if (MULTI_USER_MODE && userId) {
+      this.io.to(userId).emit('groups-update', data);
+    } else {
+      this.io.emit('groups-update', data);
+    }
   }
 };
 

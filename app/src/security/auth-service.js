@@ -95,6 +95,20 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
     const body = req.body || {};
     const identifier = typeof body.email === 'string' ? body.email.trim().toLowerCase().slice(0, 255) : (typeof body.username === 'string' ? body.username.trim().toLowerCase().slice(0, 65) : '');
     limit(req, identifier);
+
+    // 邮箱验证码登录
+    if (body.loginMethod === 'email-code' && body.email) {
+      let user = null;
+      try { user = repo.findUserByEmail(identifier); } catch { /* Invalid identifiers follow the same password path. */ }
+      if (!user || user.disabled_at != null || user.deleted_at != null) { audit('login.failed', user?.id, req); throw fail(); }
+      const pref = repo.email.preference(user.id);
+      if (!pref?.email_verified_at || !emailVerification) throw fail();
+      const meta = { ephemeral: body.ephemeral === true, deviceLabel: typeof body.deviceLabel === 'string' ? body.deviceLabel.slice(0, 128) : 'Browser' };
+      const staged = await emailVerification.send(req, { user, email: pref.email, purpose: 'email-code-login', target: meta });
+      return { ...staged, requiresSecondFactor: true, factorMethod: 'email', emailHint: pref.email };
+    }
+
+    // 原有密码登录逻辑
     let user = null;
     try { user = body.email ? repo.findUserByEmail(identifier) : repo.findUserByUsername(identifier); } catch { /* Invalid identifiers follow the same password path. */ }
     const valid = await passwordWork(body.password, user?.password_hash);
@@ -131,15 +145,15 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
     const emailRow = repo.email.find(body.challenge,now());
     if (emailRow) {
       limit(req,`factor:${emailRow.user_id}`);
-      return emailVerification.consume(body.challenge,body.code,{purpose:'login'},row=>{
+      return emailVerification.consume(body.challenge,body.code,{purpose:['login','email-code-login']},row=>{
         const user=repo.findUserById(row.user_id);
-        if(!user || verificationMethod(user)!=='email')throw fail();
+        if(!user || (row.purpose === 'login' && verificationMethod(user)!=='email'))throw fail();
         const meta=parseObject(row.target);
         if(user.must_change_password)return setupChallenge(user,{meta,requirePassword:true,requireFactor:false,mode:'password-change'});
         // Email verification is stored separately as a session/user/security-version proof.
         // Keep the schema's password strength; a proof never grants TOTP/admin privileges.
         const result=makeSession(user,meta,req,'password');
-        repo.email.prove(result.session.id,user.id,user.security_version,now());
+        if (row.purpose === 'login') repo.email.prove(result.session.id,user.id,user.security_version,now());
         return result;
       });
     }

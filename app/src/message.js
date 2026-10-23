@@ -20,6 +20,10 @@ function toPublicMessage(message, userId = null) {
     favorite: Boolean(message.favorite),
     remark: typeof message.remark === 'string' ? message.remark : ''
   };
+  // private 标记原样透传，内容保留——前端根据 private 标记决定是否叠遮罩
+  if (message && message.private === true) {
+    result.private = true;
+  }
 
   if (message.type === 'image') {
     const content = message.content;

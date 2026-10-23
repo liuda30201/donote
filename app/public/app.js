@@ -22,6 +22,22 @@ const passwordInput = document.getElementById('password-input');
 const togglePasswordBtn = document.getElementById('toggle-password-btn');
 const authBtn = document.getElementById('auth-btn');
 const authError = document.getElementById('auth-error');
+
+// 邮箱验证码登录元素
+const passwordTab = document.getElementById('password-tab');
+const emailCodeTab = document.getElementById('email-code-tab');
+const usernameInput = document.getElementById('username-input');
+const passwordLoginArea = document.getElementById('password-login-area');
+const emailCodeLoginArea = document.getElementById('email-code-login-area');
+const emailLoginCode = document.getElementById('email-login-code');
+const sendEmailCodeBtn = document.getElementById('send-email-code-btn');
+const emailCodeHint = document.getElementById('email-code-hint');
+
+let currentLoginMethod = 'password'; // 'password' 或 'email-code'
+let emailCodeCountdown = 0;
+let emailCodeTimer = null;
+let emailCodeChallenge = null;
+
 const messagesList = document.getElementById('messages-list');
 const favoritesList = document.getElementById('favorites-list');
 const textInput = document.getElementById('text-input');
@@ -52,6 +68,19 @@ const adminStatus = document.getElementById('admin-status');
 const adminEditor = document.getElementById('admin-editor');
 const adminConfirmation = document.getElementById('admin-confirmation');
 const adminSummary = document.getElementById('admin-summary');
+const adminClose = document.getElementById('admin-close');
+const aboutOpen = document.getElementById('about-open');
+const aboutModal = document.getElementById('about-modal');
+const aboutClose = document.getElementById('about-close');
+const avatarEditTrigger = document.getElementById('avatar-edit-trigger');
+const avatarEditorModal = document.getElementById('avatar-editor-modal');
+const avatarEditorClose = document.getElementById('avatar-editor-close');
+const avatarEditorCancel = document.getElementById('avatar-editor-cancel');
+const avatarEditorSave = document.getElementById('avatar-editor-save');
+const avatarPreviewLarge = document.getElementById('avatar-preview-large');
+const avatarCustomInput = document.getElementById('avatar-custom-input');
+const avatarCustomPreview = document.getElementById('avatar-custom-preview');
+const avatarPresetGrid = document.getElementById('avatar-preset-grid');
 let adminGeneration = 0;
 let adminPending = null;
 const securityReauthBtn = document.getElementById('security-reauth-btn');
@@ -95,7 +124,6 @@ async function loadVerificationSettings() {
   if (epoch !== accountEpoch || generation !== securityGeneration) return null;
   if (!response.ok) throw new Error('验证偏好读取失败，请重新打开安全设置');
   verificationSettings = data;
-  verificationField('verification-preferences').classList.remove('hidden');
   verificationField('verification-controls').classList.toggle('hidden', Boolean(data.managed));
   verificationField('verification-summary').textContent = data.managed ? '管理员账户由安全策略管理，固定使用密码与身份验证器验证。' : `当前：${({ password: '仅密码', email: '邮箱验证码', totp: '身份验证器' })[data.method] || '未知'}${data.emailHint ? ` · ${data.emailHint}` : ''}${!data.emailAvailable ? '。邮件服务暂不可用。' : ''}`;
   verificationField('verification-method').value = data.method;
@@ -188,6 +216,11 @@ let isAuthenticated = false;
 let requirePassword = true;
 let currentTab = 'messages';
 let currentTypeFilter = 'all'; // 'all' | 'text' | 'code' | 'link' | 'image' | 'file'
+let currentCategoryFilter = null; // null = 不筛选, string = 按分类标题筛选
+let searchScope = 'all'; // 'all' | 'note' 搜索范围
+let privateUnlocked = false; // 会话内隐私解锁状态，刷新/登出后重置
+let privateUnlockDuration = 0; // 0=本次会话, -1=永久解锁(不重锁), >0=秒数后重锁
+let privateRelockTimer = null; // 自动重锁计时器
 const filterChips = document.querySelectorAll('.filter-chip');
 let userId = null; // 多用户模式下的用户 ID
 let currentMode = 'pending'; // 服务端确认前禁止凭据请求
@@ -427,6 +460,69 @@ function initTypeFilterBar() {
 }
 initTypeFilterBar();
 
+// ========== 分类聚合 & 筛选 ==========
+
+// 从备注字符串生成稳定颜色（hsl）
+function remarkToColor(remark) {
+  let hash = 0;
+  for (let i = 0; i < remark.length; i++) {
+    hash = ((hash << 5) - hash) + remark.charCodeAt(i);
+    hash |= 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return { bg: `hsl(${hue}, 55%, 88%)`, text: `hsl(${hue}, 50%, 30%)`, dot: `hsl(${hue}, 55%, 55%)` };
+}
+
+// 统计所有消息里出现的分类标题（去空、去重、按出现次数降序）
+function aggregateCategories(msgs) {
+  const counts = new Map();
+  for (const m of msgs) {
+    const r = typeof m.title === 'string' ? m.title.trim() : '';
+    if (r) counts.set(r, (counts.get(r) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([remark, count]) => ({ remark, count }));
+}
+
+const categoryChipsEl = document.getElementById('category-chips');
+const categoryDividerEl = document.getElementById('category-divider');
+
+function renderCategoryChips() {
+  if (!categoryChipsEl) return;
+  const allMsgs = [...messages, ...favorites];
+  // 用管理好的分组列表 + 统计每个分组的卡片数
+  const cats = userGroups.map(name => ({
+    name,
+    count: allMsgs.filter(m => m.title === name).length
+  })).filter(c => c.count > 0);
+
+  categoryChipsEl.innerHTML = '';
+
+  if (cats.length === 0) {
+    if (categoryDividerEl) categoryDividerEl.classList.add('hidden');
+    return;
+  }
+
+  if (categoryDividerEl) categoryDividerEl.classList.remove('hidden');
+
+  cats.forEach(({ name, count }) => {
+    const { bg, text, dot } = remarkToColor(name);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'category-chip';
+    if (currentCategoryFilter === name) btn.classList.add('active');
+    btn.innerHTML = `<span class="category-chip-dot" style="background:${dot}"></span>${name}`;
+    btn.title = `${count} 条`;
+    btn.addEventListener('click', () => {
+      currentCategoryFilter = currentCategoryFilter === name ? null : name;
+      renderCategoryChips();
+      if (searchState.active) renderSearchResults(); else renderMessages({ scrollBottom: true });
+    });
+    categoryChipsEl.appendChild(btn);
+  });
+}
+
 const CARD_SIZE_MIN = 80;
 const CARD_SIZE_MAX = 520;
 const CARD_SIZE_STEP = 20;
@@ -549,6 +645,45 @@ function initDisplaySettings() {
 
   displaySettingsBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+
+    // 更新用户信息显示
+    const popoverUserInfoBar = document.getElementById('popover-user-info-bar');
+    const popoverCompactAvatar = document.getElementById('popover-compact-avatar');
+    const popoverCompactName = document.getElementById('popover-compact-name');
+    const popoverCompactEmail = document.getElementById('popover-compact-email');
+    const popoverUserDivider = document.getElementById('popover-user-divider');
+
+    if (currentMode === 'accounts' && accountUser) {
+      if (popoverUserInfoBar && popoverCompactAvatar && popoverCompactName) {
+        popoverUserInfoBar.classList.remove('hidden');
+        if (popoverUserDivider) popoverUserDivider.classList.remove('hidden');
+
+        // 应用存储的头像
+        const storedAvatar = getStoredAvatar();
+        if (storedAvatar.type === 'emoji' || storedAvatar.type === 'icon') {
+          if (storedAvatar.value === 'tg-plane') {
+            popoverCompactAvatar.innerHTML = `
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="color: #0088cc;">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+              </svg>
+            `;
+          } else {
+            popoverCompactAvatar.textContent = storedAvatar.value;
+          }
+        } else {
+          popoverCompactAvatar.textContent = storedAvatar.value.toUpperCase();
+        }
+
+        popoverCompactName.textContent = accountUser.displayName || accountUser.username;
+        if (popoverCompactEmail) {
+          popoverCompactEmail.textContent = accountUser.username;
+        }
+      }
+    } else {
+      if (popoverUserInfoBar) popoverUserInfoBar.classList.add('hidden');
+      if (popoverUserDivider) popoverUserDivider.classList.add('hidden');
+    }
+
     togglePopover();
   });
 
@@ -570,6 +705,15 @@ initDisplaySettings();
   if (!kbd) return;
   const isMac = navigator.platform && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   kbd.textContent = isMac ? '⌘K' : '/';
+})();
+
+// 底部 dock 两侧快捷键淡提示（左 复制 / 右 粘贴，桌面端）
+(function initDockSideHints() {
+  const isMac = navigator.platform && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  const copy = document.getElementById('dock-hint-copy');
+  const paste = document.getElementById('dock-hint-paste');
+  if (copy) copy.textContent = isMac ? '⌘C  复制' : 'Ctrl+C  复制';
+  if (paste) paste.textContent = isMac ? '⌘V  粘贴' : 'Ctrl+V  粘贴';
 })();
 
 // 密码框明文/密文切换
@@ -700,6 +844,7 @@ async function fetchSearchResults({ q, type, range, before, limit = SEARCH_PAGE_
   if (q) params.set('q', q);
   params.set('limit', String(limit));
   if (type && type !== 'all') params.set('type', type);
+  if (searchScope === 'note') params.set('scope', 'note');
   const from = rangeToFrom(range);
   if (Number.isFinite(from)) params.set('from', String(from));
   if (Number.isFinite(before)) params.set('before', String(before));
@@ -1115,6 +1260,7 @@ function renderLoadingState() {
 
 function renderEmptyState() {
   const isMac = navigator.platform && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  const copyHint = isMac ? '⌘C' : 'Ctrl+C';
   const pasteHint = isMac ? '⌘V' : 'Ctrl+V';
   messagesList.innerHTML = `
     <div class="empty-state messages-empty">
@@ -1127,7 +1273,19 @@ function renderEmptyState() {
         </svg>
       </div>
       <p class="empty-state-title">剪贴板暂无内容</p>
-      <p class="empty-state-desc">按 <kbd class="inline-code">${pasteHint}</kbd> 直接粘贴文字或截图，随时跨设备查看与复制</p>
+      <div class="empty-state-shortcuts">
+        <div class="empty-state-shortcut-row">
+          <span>在任意处复制</span>
+          <kbd class="inline-code">${copyHint}</kbd>
+        </div>
+        <div class="empty-state-shortcut-arrow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="5 12 12 19 19 12"></polyline></svg>
+        </div>
+        <div class="empty-state-shortcut-row">
+          <span>回到这里粘贴</span>
+          <kbd class="inline-code">${pasteHint}</kbd>
+        </div>
+      </div>
     </div>
   `;
   updateMessageCount();
@@ -1501,16 +1659,28 @@ function createMessageElement(msg, isFavoritesView = false) {
 
   headerLeftEl.appendChild(labelsEl);
 
-  // 有备注时在类型名之上叠加可点击的备注标题（绝对定位覆盖）
   const titleEl = document.createElement('span');
-  titleEl.className = 'paste-card-title' + (msg.remark ? ' has-custom-title' : ' hidden');
-  titleEl.textContent = msg.remark || '';
-  titleEl.title = '点击修改备注标题';
-  titleEl.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openRemarkModal(msg);
-  });
+  titleEl.className = 'paste-card-title hidden';
+  titleEl.textContent = msg.title || '';
   headerLeftEl.appendChild(titleEl);
+
+  if (msg.title) {
+    // 有分类标题时：type label 改为彩色分类 chip，时间保留
+    const { bg, text: textColor, dot } = remarkToColor(msg.title);
+    typeLabelEl.className = 'paste-card-type-label hidden';
+    const tag = document.createElement('span');
+    tag.className = 'paste-card-category-tag';
+    tag.style.cssText = `background:${bg};color:${textColor};flex-shrink:0;`;
+    tag.title = `分类：${msg.title} · 点击筛选`;
+    tag.innerHTML = `<span class="paste-card-category-tag-dot" style="background:${dot}"></span>${msg.title}`;
+    tag.addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentCategoryFilter = currentCategoryFilter === msg.title ? null : msg.title;
+      renderCategoryChips();
+      renderMessages({ scrollBottom: true });
+    });
+    labelsEl.insertBefore(tag, headerTimeEl);
+  }
 
   const actionsEl = document.createElement('div');
   actionsEl.className = 'message-actions';
@@ -1532,6 +1702,25 @@ function createMessageElement(msg, isFavoritesView = false) {
     toggleFavorite(msg.id, !msg.favorite);
   });
   actionsEl.appendChild(favoriteBtn);
+
+  // 备注按钮（铅笔图标，有备注时高亮）
+  const remarkBtn = document.createElement('button');
+  remarkBtn.type = 'button';
+  remarkBtn.className = 'card-icon-btn card-secondary-action message-remark-action';
+  if (msg.remark) remarkBtn.classList.add('active');
+  remarkBtn.title = msg.remark ? `备注：${msg.remark}` : '添加备注';
+  remarkBtn.setAttribute('aria-label', msg.remark ? '修改备注' : '添加备注');
+  remarkBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+    </svg>
+  `;
+  remarkBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openRemarkModal(msg);
+  });
+  actionsEl.appendChild(remarkBtn);
 
   if (msg.sensitive && currentMode === 'accounts') {
     const sensitiveBtn = document.createElement('button'); sensitiveBtn.type = 'button'; sensitiveBtn.className = 'card-icon-btn card-secondary-action'; sensitiveBtn.title = '取消敏感标记'; sensitiveBtn.setAttribute('aria-label', sensitiveBtn.title); sensitiveBtn.textContent = 'S';
@@ -1615,11 +1804,35 @@ function createMessageElement(msg, isFavoritesView = false) {
   metaTextSpan.textContent = spec.metaText;
   metaFooterEl.appendChild(metaTextSpan);
 
-  // 保持兼容的隐藏备注节点（标题栏已直接展示备注名）
-  const remarkBoxEl = document.createElement('div');
-  remarkBoxEl.className = 'message-remark-box sr-only';
-  remarkBoxEl.innerHTML = `<span class="message-remark-text"></span>`;
-  remarkBoxEl.querySelector('.message-remark-text').textContent = msg.remark || '';
+  // 底部常驻分组入口（点击打开分组选择弹窗）
+  const titleEntryBtn = document.createElement('button');
+  titleEntryBtn.type = 'button';
+  titleEntryBtn.className = 'card-remark-entry card-title-entry' + (msg.title ? ' has-remark' : '');
+  titleEntryBtn.title = msg.title ? `分组：${msg.title} · 点击修改` : '设置分组';
+  titleEntryBtn.setAttribute('aria-label', msg.title ? '修改分组' : '设置分组');
+  if (msg.title) {
+    const { dot } = remarkToColor(msg.title);
+    titleEntryBtn.innerHTML = `<span class="card-remark-entry-dot" style="background:${dot}"></span><span class="card-remark-entry-text">${msg.title}</span>`;
+  } else {
+    titleEntryBtn.innerHTML = '<span class="card-remark-entry-plus">#</span><span>分组</span>';
+  }
+  titleEntryBtn.addEventListener('click', (e) => { e.stopPropagation(); openTitleModal(msg); });
+  metaFooterEl.appendChild(titleEntryBtn);
+
+  // 底部常驻备注入口（淡显，点击打开备注弹窗）
+  const remarkEntryBtn = document.createElement('button');
+  remarkEntryBtn.type = 'button';
+  remarkEntryBtn.className = 'card-remark-entry' + (msg.remark ? ' has-remark' : '');
+  remarkEntryBtn.title = msg.remark ? `备注：${msg.remark} · 点击修改` : '添加备注';
+  remarkEntryBtn.setAttribute('aria-label', msg.remark ? '修改备注' : '添加备注');
+  remarkEntryBtn.innerHTML = msg.remark
+    ? `<span class="card-remark-entry-dot"></span><span class="card-remark-entry-text">${msg.remark}</span>`
+    : '<span class="card-remark-entry-plus">+</span><span>备注</span>';
+  remarkEntryBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openRemarkModal(msg);
+  });
+  metaFooterEl.appendChild(remarkEntryBtn);
 
   let primaryHeaderAction = null;
 
@@ -1844,6 +2057,54 @@ function createMessageElement(msg, isFavoritesView = false) {
     actionsEl.appendChild(copyFileBtn);
   }
 
+  // 隐私按钮
+  const privateBtn = document.createElement('button');
+  privateBtn.type = 'button';
+  privateBtn.className = 'card-icon-btn card-secondary-action card-private-action';
+  if (msg.private) privateBtn.classList.add('active');
+  privateBtn.title = msg.private ? '解除隐私保护' : '设为隐私';
+  privateBtn.setAttribute('aria-label', privateBtn.title);
+  privateBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+    </svg>
+  `;
+  privateBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (msg.private) {
+      // 解除隐私：需要邮箱验证码
+      openPrivateUnlockModal(msg.id);
+    } else {
+      // 打上隐私标记：无需验证，直接提交
+      try {
+        const r = await authFetch(`/api/messages/${encodeURIComponent(msg.id)}/private/toggle`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (!r.ok) { const d = await r.json(); showToast(d.code === 'MESSAGE_NOT_FOUND' ? '卡片不存在' : '操作失败'); }
+      } catch { showToast('操作失败，请重试'); }
+    }
+  });
+  actionsEl.appendChild(privateBtn);
+
+  // 隐私状态遮罩（锁定且会话未解锁时才叠遮罩）
+  if (msg.private && !privateUnlocked) {
+    messageEl.classList.add('is-private');
+    const lockOverlay = document.createElement('div');
+    lockOverlay.className = 'private-lock-overlay';
+    lockOverlay.innerHTML = `
+      <div class="private-lock-badge">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+      </div>
+    `;
+    lockOverlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPrivateUnlockModal();
+    });
+    messageEl.appendChild(lockOverlay);
+  }
+
   // 顶部工具区严格只保留：收藏、复制、删除 三个按钮
   actionsEl.appendChild(deleteWrapperEl);
 
@@ -1898,7 +2159,6 @@ function createMessageElement(msg, isFavoritesView = false) {
   headerEl.appendChild(headerRightEl);
 
   messageEl.appendChild(metaFooterEl);
-  messageEl.appendChild(remarkBoxEl);
   return messageEl;
 }
 
@@ -1945,17 +2205,23 @@ function getTimelineDateInfo(timestamp) {
 
 function renderTimelineList(items, container, { isFavoritesView = false, forceExpand = false } = {}) {
   // 按顶部 Pinboard 类型胶囊筛选（全部 / 文本 / 代码 / 链接 / 图片 / 文件）
-  const filteredItems = currentTypeFilter === 'all'
+  let filteredItems = currentTypeFilter === 'all'
     ? items
     : items.filter((msg) => detectPasteCardSpec(msg).variant === currentTypeFilter);
+
+  // 按分类标题筛选
+  if (currentCategoryFilter) {
+    filteredItems = filteredItems.filter((msg) => (typeof msg.title === 'string' ? msg.title.trim() : '') === currentCategoryFilter);
+  }
 
   if (filteredItems.length === 0) {
     const filterNames = { text: '文本', code: '代码', link: '链接', image: '图片', file: '文件' };
     const filterLabel = filterNames[currentTypeFilter] || '';
+    const categoryLabel = currentCategoryFilter ? `「${currentCategoryFilter}」分类下` : '';
     container.innerHTML = `
       <div class="empty-state messages-empty">
-        <p class="empty-state-title">当前没有${filterLabel}类型的记录</p>
-        <p class="empty-state-desc">可点击上方「全部」查看所有剪贴板历史</p>
+        <p class="empty-state-title">${categoryLabel}当前没有${filterLabel}类型的记录</p>
+        <p class="empty-state-desc">可点击上方「全部」或取消分类筛选查看所有剪贴板历史</p>
       </div>
     `;
     return;
@@ -2066,6 +2332,7 @@ function renderMessages({ scrollBottom = false } = {}) {
   renderTimelineList(messages, messagesList);
   updateMessageCount();
   updateLoadOlderButton();
+  renderCategoryChips();
 
   if (scrollBottom) {
     shouldStickToBottom = true;
@@ -2184,45 +2451,100 @@ function updateSingleMessageFavorite(id, favorite) {
 function updateSingleMessageRemark(id, remark) {
   const cleanRemark = typeof remark === 'string' ? remark : '';
   const msgInList = messages.find((m) => m.id === id);
-  if (msgInList) {
-    msgInList.remark = cleanRemark;
-  }
+  if (msgInList) msgInList.remark = cleanRemark;
   const favInList = favorites.find((f) => f.id === id);
-  if (favInList) {
-    favInList.remark = cleanRemark;
-  }
+  if (favInList) favInList.remark = cleanRemark;
 
   const updateElement = (container) => {
     if (!container) return;
     const msgEl = container.querySelector(`.message[data-id="${CSS.escape(id)}"]`);
-    if (msgEl) {
-      const titleEl = msgEl.querySelector('.paste-card-title');
-      if (titleEl) {
-        titleEl.textContent = cleanRemark || '';
-        titleEl.classList.toggle('has-custom-title', Boolean(cleanRemark));
-        titleEl.classList.toggle('hidden', !cleanRemark);
-      }
+    if (!msgEl) return;
 
-      const remarkBox = msgEl.querySelector('.message-remark-box');
-      if (remarkBox) {
-        const textEl = remarkBox.querySelector('.message-remark-text');
-        if (textEl) textEl.textContent = cleanRemark;
-      }
+    // 更新备注按钮状态
+    const remarkBtn = msgEl.querySelector('.message-remark-action');
+    if (remarkBtn) {
+      remarkBtn.classList.toggle('active', Boolean(cleanRemark));
+      remarkBtn.title = cleanRemark ? `备注：${cleanRemark}` : '添加备注';
+      remarkBtn.setAttribute('aria-label', cleanRemark ? '修改备注' : '添加备注');
+    }
 
-      const remarkBtn = msgEl.querySelector('.message-remark-action');
-      if (remarkBtn) {
-        const spanEl = remarkBtn.querySelector('span');
-        if (spanEl) {
-          spanEl.textContent = cleanRemark ? '重命名标题' : '设置标题 / 备注';
+    // 同步底部备注入口按钮（不含 card-title-entry）
+    const entryBtns = msgEl.querySelectorAll('.card-remark-entry:not(.card-title-entry)');
+    entryBtns.forEach(entryBtn => {
+      entryBtn.classList.toggle('has-remark', Boolean(cleanRemark));
+      entryBtn.title = cleanRemark ? `备注：${cleanRemark} · 点击修改` : '添加备注';
+      entryBtn.setAttribute('aria-label', cleanRemark ? '修改备注' : '添加备注');
+      entryBtn.innerHTML = cleanRemark
+        ? `<span class="card-remark-entry-dot"></span><span class="card-remark-entry-text">${cleanRemark}</span>`
+        : '<span class="card-remark-entry-plus">+</span><span>备注</span>';
+    });
+  };
+
+  updateElement(messagesList);
+  updateElement(favoritesList);
+}
+
+function updateSingleMessageTitle(id, title) {
+  const cleanTitle = typeof title === 'string' ? title.trim() : '';
+  const msgInList = messages.find((m) => m.id === id);
+  if (msgInList) msgInList.title = cleanTitle || undefined;
+  const favInList = favorites.find((f) => f.id === id);
+  if (favInList) favInList.title = cleanTitle || undefined;
+
+  const updateElement = (container) => {
+    if (!container) return;
+    const msgEl = container.querySelector(`.message[data-id="${CSS.escape(id)}"]`);
+    if (!msgEl) return;
+
+    // 更新 header 分类 chip
+    const labelsEl = msgEl.querySelector('.paste-card-labels');
+    if (labelsEl) {
+      const existingTag = labelsEl.querySelector('.paste-card-category-tag');
+      const typeLabelEl = labelsEl.querySelector('.paste-card-type-label');
+      const timeEl = labelsEl.querySelector('.paste-card-header-time');
+      if (cleanTitle) {
+        const { bg, text: textColor, dot } = remarkToColor(cleanTitle);
+        if (existingTag) {
+          existingTag.style.cssText = `background:${bg};color:${textColor};flex-shrink:0;`;
+          existingTag.title = `分类：${cleanTitle} · 点击筛选`;
+          existingTag.innerHTML = `<span class="paste-card-category-tag-dot" style="background:${dot}"></span>${cleanTitle}`;
+        } else {
+          const tag = document.createElement('span');
+          tag.className = 'paste-card-category-tag';
+          tag.style.cssText = `background:${bg};color:${textColor};flex-shrink:0;`;
+          tag.title = `分类：${cleanTitle} · 点击筛选`;
+          tag.innerHTML = `<span class="paste-card-category-tag-dot" style="background:${dot}"></span>${cleanTitle}`;
+          tag.addEventListener('click', (e) => {
+            e.stopPropagation();
+            currentCategoryFilter = currentCategoryFilter === cleanTitle ? null : cleanTitle;
+            renderCategoryChips();
+            renderMessages({ scrollBottom: true });
+          });
+          if (timeEl) labelsEl.insertBefore(tag, timeEl);
+          else labelsEl.appendChild(tag);
         }
+        if (typeLabelEl) typeLabelEl.classList.add('hidden');
+      } else {
+        if (existingTag) existingTag.remove();
+        if (typeLabelEl) typeLabelEl.classList.remove('hidden');
       }
+    }
+
+    // 同步底部分类标题入口按钮
+    const titleEntryBtn = msgEl.querySelector('.card-title-entry');
+    if (titleEntryBtn) {
+      titleEntryBtn.classList.toggle('has-remark', Boolean(cleanTitle));
+      titleEntryBtn.title = cleanTitle ? `分类：${cleanTitle} · 点击修改` : '设置分类标题';
+      titleEntryBtn.setAttribute('aria-label', cleanTitle ? '修改分类标题' : '设置分类标题');
+      titleEntryBtn.innerHTML = cleanTitle
+        ? `<span class="card-remark-entry-dot" style="background:${remarkToColor(cleanTitle).dot}"></span><span class="card-remark-entry-text">${cleanTitle}</span>`
+        : '<span class="card-remark-entry-plus">#</span><span>分类</span>';
     }
   };
 
   updateElement(messagesList);
-  if (favoritesList) {
-    updateElement(favoritesList);
-  }
+  updateElement(favoritesList);
+  renderCategoryChips();
 }
 
 function scrollToBottom() {
@@ -2306,8 +2628,8 @@ function setRegistrationMode(enabled) {
   registrationMode = Boolean(enabled);
   document.getElementById('registration-fields')?.classList.toggle('hidden', !registrationMode);
   document.getElementById('registration-toggle')?.classList.toggle('hidden', !registrationAvailable);
-  document.getElementById('registration-toggle').textContent = registrationMode ? '返回登录' : '创建账户';
-  authBtn.textContent = registrationMode ? (registrationChallenge ? '确认邮箱并创建账户' : '发送验证码') : '进入工作台';
+  document.getElementById('registration-toggle').textContent = registrationMode ? '返回登录' : '注册';
+  authBtn.textContent = registrationMode ? (registrationChallenge ? '确认邮箱并创建账户' : '发送验证码') : '登录';
   document.getElementById('username-label')?.classList.remove('hidden');
   document.getElementById('username-input')?.classList.remove('hidden');
   document.getElementById('password-help')?.classList.toggle('hidden', !registrationMode);
@@ -2408,9 +2730,21 @@ function enterChatMode() {
   if (location.pathname !== '/app') history.replaceState(null, '', '/app');
   isAuthenticated = true;
   adminOpen?.classList.toggle('hidden', currentMode !== 'accounts' || accountUser?.role !== 'admin');
+  securityOpen?.classList.toggle('hidden', currentMode !== 'accounts');
+
+  // 更新顶栏用户头像
+  const topbarUserAvatar = document.getElementById('topbar-user-avatar');
+  if (topbarUserAvatar && accountUser) {
+    const storedAvatar = getStoredAvatar();
+    applyAvatarToUI(storedAvatar);
+  } else if (topbarUserAvatar) {
+    topbarUserAvatar.textContent = 'U';
+  }
+
   authSection.classList.add('hidden');
   chatSection.classList.remove('hidden');
   if (enrollmentPending) { showEnrollment(); return; }
+  loadGroups();
 
   // 重置搜索状态与工具条，确保以完整消息流开始
   searchState.active = false;
@@ -2643,6 +2977,9 @@ async function logout(showMessage = true, revokeSession = true, fromOtherTab = f
   isAuthenticated = false;
   messages = [];
   favorites = [];
+  privateUnlocked = false;
+  privateUnlockDuration = 0;
+  if (privateRelockTimer) { clearTimeout(privateRelockTimer); privateRelockTimer = null; }
   updateFavoritesBadge();
   hasMoreMessages = false;
   initialLoaded = false;
@@ -2928,7 +3265,7 @@ function beginAdminAction(action, user = null) {
   if (currentMode !== 'accounts' || accountUser?.role !== 'admin') return;
   const target = user ? { id: user.id, username: user.username, disabled: (user.disabledAt ?? user.disabled_at) != null } : null;
   adminPending = { action, target };
-  document.getElementById('admin-target').textContent = target ? `目标账户：${target.username} (${target.id})${action === 'admin.user.disable' ? (target.disabled ? '，将启用' : '，将禁用') : ''}` : '创建账户：首次登录必须更改密码';
+  document.getElementById('admin-target').textContent = target ? `目标账户：${target.username} (${target.id})${action === 'admin.user.disable' ? (target.disabled ? '，将启用' : '，将禁用') : ''}` : '注册：首次登录必须更改密码';
   document.getElementById('admin-create-fields').classList.toggle('hidden', action !== 'admin.user.create');
   document.getElementById('admin-role-field').classList.toggle('hidden', !['admin.user.create', 'admin.user.role'].includes(action));
   document.getElementById('admin-target-password-field').classList.toggle('hidden', !['admin.user.create', 'admin.user.reset-password'].includes(action));
@@ -2973,6 +3310,252 @@ adminEditor?.addEventListener('submit', authorizeAdminOperation);
 document.getElementById('admin-cancel')?.addEventListener('click', clearAdminOperation);
 document.getElementById('admin-confirm-cancel')?.addEventListener('click', clearAdminOperation);
 document.getElementById('admin-confirm')?.addEventListener('click', confirmAdminOperation);
+adminModal?.addEventListener('click', (e) => { if (e.target === adminModal) closeAdminSettings(); });
+
+// 关于我们弹窗
+aboutOpen?.addEventListener('click', () => {
+  aboutModal?.classList.remove('hidden');
+  const versionEl = document.getElementById('about-version');
+  if (versionEl && typeof APP_VERSION !== 'undefined') {
+    versionEl.textContent = `版本 ${APP_VERSION}`;
+  }
+  closeSettingsPopover();
+});
+aboutClose?.addEventListener('click', () => { aboutModal?.classList.add('hidden'); });
+aboutModal?.addEventListener('click', (e) => { if (e.target === aboutModal) aboutModal?.classList.add('hidden'); });
+
+// ========== 头像编辑器 ==========
+let currentAvatarSelection = { type: '', value: '' };
+
+// 分类标签切换
+document.querySelectorAll('.avatar-category-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const category = tab.dataset.category;
+
+    // 切换标签状态
+    document.querySelectorAll('.avatar-category-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+
+    // 切换内容显示
+    document.querySelectorAll('.avatar-category-content').forEach(content => {
+      content.classList.toggle('active', content.dataset.category === category);
+    });
+  });
+});
+
+// 打开头像编辑器
+avatarEditTrigger?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  avatarEditorModal?.classList.remove('hidden');
+
+  // 初始化当前头像显示
+  const currentAvatar = getStoredAvatar();
+  updateAvatarPreview(currentAvatar);
+
+  // 清除之前的选择状态
+  currentAvatarSelection = { ...currentAvatar };
+  document.querySelectorAll('.avatar-preset-item').forEach(item => {
+    item.classList.remove('selected');
+    if (item.dataset.type === currentAvatar.type && item.dataset.value === currentAvatar.value) {
+      item.classList.add('selected');
+    }
+  });
+
+  if (currentAvatar.type === 'text') {
+    avatarCustomInput.value = currentAvatar.value;
+  } else {
+    avatarCustomInput.value = '';
+  }
+
+  closeSettingsPopover();
+});
+
+// 关闭头像编辑器
+avatarEditorClose?.addEventListener('click', () => { avatarEditorModal?.classList.add('hidden'); });
+avatarEditorCancel?.addEventListener('click', () => { avatarEditorModal?.classList.add('hidden'); });
+avatarEditorModal?.addEventListener('click', (e) => { if (e.target === avatarEditorModal) avatarEditorModal?.classList.add('hidden'); });
+
+// 预设图标选择
+avatarPresetGrid?.addEventListener('click', (e) => {
+  const item = e.target.closest('.avatar-preset-item');
+  if (!item) return;
+
+  // 清除其他选中状态
+  document.querySelectorAll('.avatar-preset-item').forEach(el => el.classList.remove('selected'));
+  item.classList.add('selected');
+
+  // 更新选择状态
+  currentAvatarSelection = {
+    type: item.dataset.type,
+    value: item.dataset.value
+  };
+
+  // 更新预览
+  updateAvatarPreview(currentAvatarSelection);
+
+  // 清空自定义输入
+  if (avatarCustomInput) avatarCustomInput.value = '';
+});
+
+// 自定义文字预览
+avatarCustomPreview?.addEventListener('click', () => {
+  const value = avatarCustomInput?.value.trim();
+  if (!value) {
+    showToast('请输入一个字符');
+    return;
+  }
+
+  // 清除预设图标选中状态
+  document.querySelectorAll('.avatar-preset-item').forEach(el => el.classList.remove('selected'));
+
+  // 更新选择状态
+  currentAvatarSelection = {
+    type: 'text',
+    value: value
+  };
+
+  // 更新预览
+  updateAvatarPreview(currentAvatarSelection);
+});
+
+// 自定义输入框回车键预览
+avatarCustomInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    avatarCustomPreview?.click();
+  }
+});
+
+// 保存头像
+avatarEditorSave?.addEventListener('click', async () => {
+  if (!currentAvatarSelection.type || !currentAvatarSelection.value) {
+    showToast('请选择或输入一个头像');
+    return;
+  }
+
+  try {
+    // 保存到本地存储
+    localStorage.setItem('web-clipboard-avatar', JSON.stringify(currentAvatarSelection));
+
+    // 如果是账户模式，尝试同步到服务器（可选，失败不影响本地使用）
+    if (currentMode === 'accounts' && accountUser) {
+      try {
+        const response = await authFetch('/api/user/avatar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentAvatarSelection)
+        });
+
+        if (!response.ok) {
+          console.warn('服务器保存头像失败，但本地已保存');
+        }
+      } catch (serverError) {
+        console.warn('服务器保存头像失败，但本地已保存:', serverError);
+      }
+    }
+
+    // 更新所有头像显示
+    applyAvatarToUI(currentAvatarSelection);
+
+    showToast('头像已更新');
+    avatarEditorModal?.classList.add('hidden');
+  } catch (error) {
+    console.error('保存头像失败:', error);
+    showToast('保存头像失败，请重试');
+  }
+});
+
+// 获取存储的头像
+function getStoredAvatar() {
+  const stored = localStorage.getItem('web-clipboard-avatar');
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      console.error('解析头像数据失败:', e);
+    }
+  }
+
+  // 默认使用用户名首字母
+  if (accountUser) {
+    const initial = (accountUser.displayName || accountUser.username || 'U').charAt(0).toUpperCase();
+    return { type: 'text', value: initial };
+  }
+
+  return { type: 'text', value: 'U' };
+}
+
+// 更新头像预览
+function updateAvatarPreview(avatar) {
+  if (!avatarPreviewLarge) return;
+
+  if (avatar.type === 'emoji' || avatar.type === 'icon') {
+    if (avatar.value === 'tg-plane') {
+      avatarPreviewLarge.innerHTML = `
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor" style="color: #0088cc;">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+        </svg>
+      `;
+    } else {
+      avatarPreviewLarge.textContent = avatar.value;
+    }
+  } else {
+    avatarPreviewLarge.textContent = avatar.value.toUpperCase();
+  }
+}
+
+// 应用头像到所有UI元素
+function applyAvatarToUI(avatar) {
+  // 顶栏头像按钮
+  const topbarUserAvatar = document.getElementById('topbar-user-avatar');
+  if (topbarUserAvatar) {
+    if (avatar.type === 'emoji' || avatar.type === 'icon') {
+      if (avatar.value === 'tg-plane') {
+        topbarUserAvatar.innerHTML = `
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="color: #0088cc;">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+          </svg>
+        `;
+      } else {
+        topbarUserAvatar.innerHTML = avatar.value;
+        // 渲染 Twemoji
+        if (typeof twemoji !== 'undefined') {
+          twemoji.parse(topbarUserAvatar, {
+            folder: 'svg',
+            ext: '.svg'
+          });
+        }
+      }
+    } else {
+      topbarUserAvatar.textContent = avatar.value.toUpperCase();
+    }
+  }
+
+  // 设置弹窗中的紧凑头像
+  const popoverCompactAvatar = document.getElementById('popover-compact-avatar');
+  if (popoverCompactAvatar) {
+    if (avatar.type === 'emoji' || avatar.type === 'icon') {
+      if (avatar.value === 'tg-plane') {
+        popoverCompactAvatar.innerHTML = `
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="color: #0088cc;">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+          </svg>
+        `;
+      } else {
+        popoverCompactAvatar.innerHTML = avatar.value;
+        // 渲染 Twemoji
+        if (typeof twemoji !== 'undefined') {
+          twemoji.parse(popoverCompactAvatar, {
+            folder: 'svg',
+            ext: '.svg'
+          });
+        }
+      }
+    } else {
+      popoverCompactAvatar.textContent = avatar.value.toUpperCase();
+    }
+  }
+}
 
 async function loadSecuritySessions() {
   const epoch = accountEpoch;
@@ -3035,6 +3618,19 @@ async function submitSecurityReauth() {
     }
   } catch (error) { if (epoch === accountEpoch && generation === securityGeneration && error.name !== 'AbortError') securityStatus.textContent = error.message || '操作失败'; }
 }
+// ===== 账户与安全弹窗：左侧导航切换 =====
+(function () {
+  const navBtns = document.querySelectorAll('.security-nav-btn');
+  const panes = document.querySelectorAll('.security-pane');
+  function switchPane(panelId) {
+    navBtns.forEach(b => b.classList.toggle('active', b.dataset.panel === panelId));
+    panes.forEach(p => p.classList.toggle('hidden', p.id !== 'security-pane-' + panelId));
+  }
+  navBtns.forEach(btn => btn.addEventListener('click', () => switchPane(btn.dataset.panel)));
+  // 暴露给外部以便打开时重置到第一个面板
+  window._securitySwitchPane = switchPane;
+})();
+
 securityOpen?.addEventListener('click', async () => {
   closeSecuritySettings(); securityModal.classList.remove('hidden'); securityStatus.textContent = '正在读取安全设置…';
   const epoch = accountEpoch; const generation = securityGeneration;
@@ -3044,10 +3640,11 @@ securityOpen?.addEventListener('click', async () => {
 function closeSecuritySettings(preserveSelfSecurityOp = false) {
   if (preserveSelfSecurityOp !== true) cancelSelfSecurityDelivery();
   securityGeneration += 1;
-  clearVerificationSecrets(); verificationSettings = null; verificationField('verification-preferences').classList.add('hidden'); verificationField('verification-summary').textContent = ''; verificationField('security-send-code').disabled = false;
+  clearVerificationSecrets(); verificationSettings = null; verificationField('verification-controls').classList.add('hidden'); verificationField('verification-summary').textContent = ''; verificationField('security-send-code').disabled = false;
   securityModal?.classList.add('hidden'); securityGrant = null; securityTarget = null; securityCompleteState = null; securityGrantAction = null;
   securityPassword.value = ''; securityCode.value = ''; securityNewPassword.value = ''; securityNewCode.value = ''; securityFactorSecret.textContent = ''; document.getElementById('security-factor-qr').removeAttribute('src'); document.getElementById('security-factor-qr').classList.add('hidden');
   securitySessions.textContent = ''; securityHistory.textContent = ''; securityStatus.textContent = ''; securityEdit.classList.add('hidden'); securityReauth.classList.add('hidden');
+  if (window._securitySwitchPane) window._securitySwitchPane('sessions');
 }
 securityClose?.addEventListener('click', closeSecuritySettings);
 securityReauthBtn?.addEventListener('click', submitSecurityReauth);
@@ -3155,9 +3752,96 @@ async function verifyAccount() {
   if (authBtn.disabled) return;
   cancelSelfSecurityDelivery();
   const epoch = accountEpoch;
-  const identifier = document.getElementById('username-input')?.value.trim(); const password = passwordInput?.value || '';
+  const identifier = usernameInput?.value.trim();
+  const password = passwordInput?.value || '';
   const code = document.getElementById('account-code')?.value.trim();
-  if (!accountChallenge && (!identifier || !document.getElementById('username-input').reportValidity())) return;
+
+  // 邮箱验证码登录处理
+  if (currentLoginMethod === 'email-code' && !accountChallenge) {
+    if (!identifier || !usernameInput.reportValidity()) return;
+    if (!identifier.includes('@')) {
+      authError.textContent = '请输入有效的邮箱地址';
+      authError.classList.remove('hidden');
+      return;
+    }
+
+    authBtn.disabled = true;
+    authError.classList.add('hidden');
+
+    try {
+      const response = await sessionFetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          email: identifier,
+          loginMethod: 'email-code',
+          ephemeral: document.getElementById('login-duration-select')?.value === 'ephemeral',
+          deviceLabel: 'Browser'
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.requiresSecondFactor) {
+        emailCodeChallenge = data.challenge;
+        emailCodeHint.textContent = `验证码已发送至 ${data.emailHint || identifier}`;
+        emailCodeHint.style.color = 'var(--success)';
+        emailLoginCode.focus();
+      } else {
+        authError.textContent = data.message || '发送验证码失败';
+        authError.classList.remove('hidden');
+      }
+    } catch (error) {
+      authError.textContent = error.message || '网络错误';
+      authError.classList.remove('hidden');
+    } finally {
+      authBtn.disabled = false;
+    }
+    return;
+  }
+
+  // 邮箱验证码二次验证
+  if (currentLoginMethod === 'email-code' && emailCodeChallenge) {
+    const emailCode = emailLoginCode?.value.trim();
+    if (!emailCode || emailCode.length !== 6) {
+      authError.textContent = '请输入6位验证码';
+      authError.classList.remove('hidden');
+      return;
+    }
+
+    authBtn.disabled = true;
+    authError.classList.add('hidden');
+
+    try {
+      const response = await sessionFetch('/api/auth/login/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ challenge: emailCodeChallenge, code: emailCode })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.token) {
+        await handleSuccessfulLogin(data);
+        emailCodeChallenge = null;
+        return;
+      } else {
+        authError.textContent = data.message || '验证码错误';
+        authError.classList.remove('hidden');
+      }
+    } catch (error) {
+      authError.textContent = error.message || '验证失败';
+      authError.classList.remove('hidden');
+    } finally {
+      authBtn.disabled = false;
+    }
+    return;
+  }
+
+  // 原有密码登录逻辑
+  if (!accountChallenge && (!identifier || !usernameInput.reportValidity())) return;
   const body = accountChallenge ? { challenge: accountChallenge } : { ...accountIdentifierPayload(identifier), password };
   if (accountChallenge) { body.code = code; body.newPassword = document.getElementById('account-new-password')?.value || ''; }
   if (accountStage === 'setup' && !verificationField('account-new-password').classList.contains('hidden') && (body.newPassword.length < 8 || new TextEncoder().encode(body.newPassword).length > 1024)) {
@@ -4111,6 +4795,117 @@ passwordInput.addEventListener('input', () => {
   authError.classList.add('hidden');
 });
 
+// 登录方式切换
+if (passwordTab && emailCodeTab) {
+  passwordTab.addEventListener('click', () => {
+    if (currentLoginMethod === 'password') return;
+    currentLoginMethod = 'password';
+    passwordTab.classList.add('active');
+    emailCodeTab.classList.remove('active');
+    passwordLoginArea.classList.remove('hidden');
+    emailCodeLoginArea.classList.add('hidden');
+    authError.classList.add('hidden');
+    emailCodeChallenge = null;
+    authBtn.textContent = '登录';
+  });
+
+  emailCodeTab.addEventListener('click', () => {
+    if (currentLoginMethod === 'email-code') return;
+    currentLoginMethod = 'email-code';
+    emailCodeTab.classList.add('active');
+    passwordTab.classList.remove('active');
+    emailCodeLoginArea.classList.remove('hidden');
+    passwordLoginArea.classList.add('hidden');
+    authError.classList.add('hidden');
+    emailCodeChallenge = null;
+    authBtn.textContent = '发送验证码';
+  });
+}
+
+// 发送邮箱验证码
+if (sendEmailCodeBtn) {
+  sendEmailCodeBtn.addEventListener('click', async () => {
+    const email = usernameInput?.value.trim();
+    if (!email || !email.includes('@')) {
+      emailCodeHint.textContent = '请输入有效的邮箱地址';
+      emailCodeHint.style.color = 'var(--danger)';
+      return;
+    }
+
+    sendEmailCodeBtn.disabled = true;
+    emailCodeHint.textContent = '正在发送验证码...';
+    emailCodeHint.style.color = 'var(--text-muted)';
+
+    try {
+      const response = await sessionFetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          email,
+          loginMethod: 'email-code',
+          ephemeral: document.getElementById('login-duration-select')?.value === 'ephemeral',
+          deviceLabel: 'Browser'
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.requiresSecondFactor) {
+        emailCodeChallenge = data.challenge;
+        emailCodeHint.textContent = `验证码已发送至 ${data.emailHint || email}`;
+        emailCodeHint.style.color = 'var(--success)';
+        emailLoginCode.focus();
+        emailCodeCountdown = 60;
+        updateEmailCodeCountdown();
+      } else {
+        emailCodeHint.textContent = data.message || '发送失败，请稍后重试';
+        emailCodeHint.style.color = 'var(--danger)';
+        sendEmailCodeBtn.disabled = false;
+      }
+    } catch (error) {
+      emailCodeHint.textContent = '网络错误，请检查连接';
+      emailCodeHint.style.color = 'var(--danger)';
+      sendEmailCodeBtn.disabled = false;
+    }
+  });
+}
+
+function updateEmailCodeCountdown() {
+  if (emailCodeCountdown > 0) {
+    sendEmailCodeBtn.textContent = `${emailCodeCountdown}s 后重发`;
+    emailCodeCountdown--;
+    emailCodeTimer = setTimeout(updateEmailCodeCountdown, 1000);
+  } else {
+    sendEmailCodeBtn.textContent = '发送验证码';
+    sendEmailCodeBtn.disabled = false;
+    if (emailCodeTimer) clearTimeout(emailCodeTimer);
+  }
+}
+
+if (usernameInput) {
+  usernameInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && currentMode === 'accounts') {
+      e.preventDefault();
+      verifyAccount();
+    }
+  });
+}
+
+if (emailLoginCode) {
+  emailLoginCode.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && currentMode === 'accounts' && emailCodeChallenge) {
+      e.preventDefault();
+      verifyAccount();
+    }
+  });
+
+  emailLoginCode.addEventListener('input', () => {
+    authError.classList.add('hidden');
+  });
+}
+
+
 if (limitDurationChk) {
   limitDurationChk.addEventListener('change', () => {
     loginDurationSelect.disabled = !limitDurationChk.checked;
@@ -4317,6 +5112,42 @@ socket.on('message-sensitive', (msg) => {
   renderMessages(); if (currentTab === 'favorites') renderFavorites();
 });
 
+function applyPrivateUnlock(duration) {
+  privateUnlocked = true;
+  privateUnlockDuration = duration;
+  // 清理之前的计时器
+  if (privateRelockTimer) { clearTimeout(privateRelockTimer); privateRelockTimer = null; }
+  // 临时解锁：设置自动重锁
+  if (duration > 0) {
+    privateRelockTimer = setTimeout(() => {
+      privateUnlocked = false;
+      privateUnlockDuration = 0;
+      privateRelockTimer = null;
+      renderMessages();
+      if (currentTab === 'favorites') renderFavorites();
+      showToast('隐私解锁已到期，卡片已重新锁定');
+    }, duration * 1000);
+  }
+}
+
+const privateUnlockDurationRow = document.getElementById('private-unlock-duration-row');
+let selectedUnlockDuration = 0; // 默认"本次会话"
+
+privateUnlockDurationRow?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.private-duration-btn');
+  if (!btn) return;
+  privateUnlockDurationRow.querySelectorAll('.private-duration-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selectedUnlockDuration = Number(btn.dataset.duration);
+});
+
+socket.on('message-private', (msg) => {
+  if (!isAuthenticated || !msg?.id) return;
+  const update = item => item.id === msg.id ? { ...item, ...msg } : item;
+  messages = messages.map(update); favorites = favorites.map(update);
+  renderMessages(); if (currentTab === 'favorites') renderFavorites();
+});
+
 socket.on('messages-clear', (data) => {
   if (!isAuthenticated) return;
   // 只清空非收藏消息，保留收藏消息
@@ -4364,7 +5195,310 @@ socket.on('message-remark', (data) => {
   if (!isAuthenticated || !data) return;
   const { id, remark } = data;
   updateSingleMessageRemark(id, remark);
+  renderCategoryChips();
 });
+
+socket.on('message-title', (data) => {
+  if (!isAuthenticated || !data) return;
+  const { id, title } = data;
+  updateSingleMessageTitle(id, title);
+  renderCategoryChips();
+});
+
+// ========== 分类标题编辑弹窗 ==========
+const titleModal = document.getElementById('title-modal');
+const titleCancelBtn = document.getElementById('title-cancel-btn');
+const titleClearBtn = document.getElementById('title-clear-btn');
+const groupPickerList = document.getElementById('group-picker-list');
+const groupPickerNewInput = document.getElementById('group-picker-new-input');
+const groupPickerAddBtn = document.getElementById('group-picker-add-btn');
+const groupsManagerModal = document.getElementById('groups-manager-modal');
+const groupsManagerClose = document.getElementById('groups-manager-close');
+const groupsManagerList = document.getElementById('groups-manager-list');
+const groupsManagerNewInput = document.getElementById('groups-manager-new-input');
+const groupsManagerAddBtn = document.getElementById('groups-manager-add-btn');
+const titleModalManageBtn = document.getElementById('title-modal-manage-btn');
+
+let currentTitleMessage = null;
+let userGroups = []; // 从服务端加载的分组列表
+
+async function loadGroups() {
+  try {
+    const r = await authFetch('/api/messages/groups');
+    if (r.ok) { const d = await r.json(); userGroups = d.groups || []; renderCategoryChips(); }
+  } catch {}
+}
+
+function openTitleModal(msg) {
+  currentTitleMessage = msg;
+  if (!titleModal) return;
+  if (titleClearBtn) titleClearBtn.classList.toggle('hidden', !msg.title);
+  if (groupPickerNewInput) groupPickerNewInput.value = '';
+  renderGroupPickerList(msg.title || '');
+  titleModal.classList.remove('hidden');
+}
+
+function renderGroupPickerList(selectedTitle) {
+  if (!groupPickerList) return;
+  groupPickerList.innerHTML = '';
+  if (userGroups.length === 0) {
+    groupPickerList.innerHTML = '<p style="color:var(--text-muted);font-size:0.82rem;padding:8px 0;margin:0">暂无分组，在下方新建一个</p>';
+    return;
+  }
+  userGroups.forEach(name => {
+    const { bg, text: textColor, dot } = remarkToColor(name);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'group-picker-item' + (name === selectedTitle ? ' active' : '');
+    btn.innerHTML = `<span class="group-picker-dot" style="background:${dot}"></span><span class="group-picker-name">${name}</span>`;
+    btn.addEventListener('click', async () => {
+      if (!currentTitleMessage) return;
+      const newTitle = name === currentTitleMessage.title ? '' : name;
+      await applyTitle(currentTitleMessage.id, newTitle);
+    });
+    groupPickerList.appendChild(btn);
+  });
+}
+
+async function applyTitle(msgId, title) {
+  try {
+    const r = await authFetch(`/api/messages/${encodeURIComponent(msgId)}/title`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title })
+    });
+    if (!r.ok) { showToast('设置失败'); return; }
+    updateSingleMessageTitle(msgId, title);
+    closeTitleModal();
+    showToast(title ? `已归入 ${title}` : '已移出分组');
+  } catch { showToast('操作失败，请重试'); }
+}
+
+function closeTitleModal() {
+  titleModal?.classList.add('hidden');
+  currentTitleMessage = null;
+}
+
+groupPickerAddBtn?.addEventListener('click', async () => {
+  const name = groupPickerNewInput?.value.trim();
+  if (!name) return;
+  await addGroup(name);
+  if (groupPickerNewInput) groupPickerNewInput.value = '';
+  renderGroupPickerList(currentTitleMessage?.title || '');
+});
+
+groupPickerNewInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); groupPickerAddBtn?.click(); }
+});
+
+titleClearBtn?.addEventListener('click', async () => {
+  if (!currentTitleMessage) return;
+  await applyTitle(currentTitleMessage.id, '');
+});
+titleCancelBtn?.addEventListener('click', closeTitleModal);
+titleModal?.addEventListener('click', (e) => { if (e.target === titleModal) closeTitleModal(); });
+titleModalManageBtn?.addEventListener('click', () => {
+  closeTitleModal();
+  openGroupsManager();
+});
+
+// ========== 分组管理面板 ==========
+function openGroupsManager() {
+  if (!groupsManagerModal) return;
+  renderGroupsManagerList();
+  if (groupsManagerNewInput) groupsManagerNewInput.value = '';
+  groupsManagerModal.classList.remove('hidden');
+}
+
+function closeGroupsManager() {
+  groupsManagerModal?.classList.add('hidden');
+}
+
+function renderGroupsManagerList() {
+  if (!groupsManagerList) return;
+  groupsManagerList.innerHTML = '';
+  if (userGroups.length === 0) {
+    groupsManagerList.innerHTML = '<p style="color:var(--text-muted);font-size:0.82rem;padding:8px 0;margin:0">暂无分组</p>';
+    return;
+  }
+  userGroups.forEach(name => {
+    const { dot } = remarkToColor(name);
+    const row = document.createElement('div');
+    row.className = 'groups-manager-row';
+    row.innerHTML = `
+      <span class="group-picker-dot" style="background:${dot}"></span>
+      <span class="groups-manager-name">${name}</span>
+      <button type="button" class="btn groups-manager-delete-btn" title="删除分组" aria-label="删除 ${name}">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6l-1 14H6L5 6"></path>
+          <path d="M10 11v6"></path><path d="M14 11v6"></path>
+          <path d="M9 6V4h6v2"></path>
+        </svg>
+      </button>
+    `;
+    row.querySelector('.groups-manager-delete-btn').addEventListener('click', async () => {
+      await deleteGroup(name);
+      renderGroupsManagerList();
+    });
+    groupsManagerList.appendChild(row);
+  });
+}
+
+async function addGroup(name) {
+  try {
+    const r = await authFetch('/api/messages/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    if (r.ok) { const d = await r.json(); userGroups = d.groups || []; renderCategoryChips(); }
+    else { const d = await r.json(); showToast(d.code === 'INVALID_NAME' ? '分组名不能为空' : '新建失败'); }
+  } catch { showToast('操作失败，请重试'); }
+}
+
+async function deleteGroup(name) {
+  try {
+    const r = await authFetch(`/api/messages/groups/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (r.ok) { const d = await r.json(); userGroups = d.groups || []; if (currentCategoryFilter === name) { currentCategoryFilter = null; } renderMessages(); renderCategoryChips(); }
+    else showToast('删除失败');
+  } catch { showToast('操作失败，请重试'); }
+}
+
+groupsManagerAddBtn?.addEventListener('click', async () => {
+  const name = groupsManagerNewInput?.value.trim();
+  if (!name) return;
+  await addGroup(name);
+  if (groupsManagerNewInput) groupsManagerNewInput.value = '';
+  renderGroupsManagerList();
+});
+groupsManagerNewInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); groupsManagerAddBtn?.click(); } });
+groupsManagerClose?.addEventListener('click', closeGroupsManager);
+groupsManagerModal?.addEventListener('click', (e) => { if (e.target === groupsManagerModal) closeGroupsManager(); });
+
+socket.on('groups-update', (data) => {
+  if (!isAuthenticated || !data?.groups) return;
+  userGroups = data.groups;
+  renderCategoryChips();
+});
+
+// ========== 搜索范围切换 ==========
+const searchScopeTabs = document.querySelectorAll('.search-scope-tab');
+searchScopeTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    const scope = tab.dataset.scope;
+    if (scope === searchScope) return;
+    searchScope = scope;
+    searchScopeTabs.forEach(t => t.classList.toggle('active', t.dataset.scope === scope));
+    // 切到备注模式时清除分类筛选（互斥）
+    if (scope === 'note') {
+      currentCategoryFilter = null;
+      renderCategoryChips();
+    }
+    if (searchInput && searchInput.value.trim()) {
+      performSearch({ force: true });
+    }
+  });
+});
+
+// ========== 隐私卡片解锁弹窗 ==========
+const privateUnlockModal = document.getElementById('private-unlock-modal');
+const privateUnlockClose = document.getElementById('private-unlock-close');
+const privateUnlockCancel = document.getElementById('private-unlock-cancel');
+const privateUnlockConfirm = document.getElementById('private-unlock-confirm');
+const privateUnlockSendBtn = document.getElementById('private-unlock-send-btn');
+const privateUnlockCodeInput = document.getElementById('private-unlock-code-input');
+const privateUnlockDesc = document.getElementById('private-unlock-desc');
+const privateUnlockHint = document.getElementById('private-unlock-hint');
+
+let privateUnlockMsgId = null;
+let privateUnlockChallenge = null;
+let privateUnlockCountdown = null;
+let privateUnlockCountdownTimer = null;
+
+function openPrivateUnlockModal() {
+  privateUnlockMsgId = true; // 标记弹窗已打开（会话解锁不绑定具体消息）
+  privateUnlockChallenge = null;
+  if (privateUnlockCodeInput) privateUnlockCodeInput.value = '';
+  if (privateUnlockConfirm) { privateUnlockConfirm.disabled = true; privateUnlockConfirm.classList.add('hidden'); }
+  if (privateUnlockHint) { privateUnlockHint.textContent = ''; privateUnlockHint.classList.add('hidden'); privateUnlockHint.classList.remove('is-error'); }
+  if (privateUnlockSendBtn) { privateUnlockSendBtn.disabled = false; privateUnlockSendBtn.textContent = '发送验证码'; }
+  if (privateUnlockDesc) privateUnlockDesc.textContent = '发送验证码到绑定邮箱，验证后解锁本次会话所有隐私卡片';
+  clearInterval(privateUnlockCountdownTimer);
+  privateUnlockModal?.classList.remove('hidden');
+  setTimeout(() => privateUnlockSendBtn?.focus(), 50);
+}
+
+function closePrivateUnlockModal() {
+  privateUnlockModal?.classList.add('hidden');
+  privateUnlockMsgId = null;
+  privateUnlockChallenge = null;
+  clearInterval(privateUnlockCountdownTimer);
+}
+
+function startPrivateUnlockCountdown() {
+  privateUnlockCountdown = 60;
+  if (privateUnlockSendBtn) { privateUnlockSendBtn.disabled = true; privateUnlockSendBtn.textContent = `${privateUnlockCountdown}s`; }
+  clearInterval(privateUnlockCountdownTimer);
+  privateUnlockCountdownTimer = setInterval(() => {
+    privateUnlockCountdown--;
+    if (privateUnlockSendBtn) privateUnlockSendBtn.textContent = `${privateUnlockCountdown}s`;
+    if (privateUnlockCountdown <= 0) {
+      clearInterval(privateUnlockCountdownTimer);
+      if (privateUnlockSendBtn) { privateUnlockSendBtn.disabled = false; privateUnlockSendBtn.textContent = '重新发送'; }
+    }
+  }, 1000);
+}
+
+privateUnlockSendBtn?.addEventListener('click', async () => {
+  try {
+    privateUnlockSendBtn.disabled = true;
+    if (privateUnlockHint) { privateUnlockHint.classList.add('hidden'); privateUnlockHint.classList.remove('is-error'); }
+    const r = await authFetch('/api/auth/email/private-unlock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'private' }) });
+    const d = await r.json();
+    if (!r.ok) { if (privateUnlockHint) { privateUnlockHint.textContent = d.code === 'MAIL_UNAVAILABLE' ? '邮件服务暂不可用' : d.code === 'AUTH_RATE_LIMIT' ? '发送过于频繁，请稍后再试' : '发送失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); } privateUnlockSendBtn.disabled = false; return; }
+    privateUnlockChallenge = d.challenge;
+    if (privateUnlockDesc) privateUnlockDesc.textContent = `验证码已发送至 ${d.emailHint || '绑定邮箱'}，5 分钟内有效`;
+    if (privateUnlockHint) { privateUnlockHint.classList.add('hidden'); }
+    startPrivateUnlockCountdown();
+    privateUnlockCodeInput?.focus();
+  } catch { if (privateUnlockHint) { privateUnlockHint.textContent = '发送失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); } if (privateUnlockSendBtn) privateUnlockSendBtn.disabled = false; }
+});
+
+privateUnlockCodeInput?.addEventListener('input', () => {
+  const val = privateUnlockCodeInput.value.replace(/\D/g, '').slice(0, 6);
+  if (privateUnlockCodeInput.value !== val) privateUnlockCodeInput.value = val;
+  if (privateUnlockConfirm) {
+    privateUnlockConfirm.disabled = !(privateUnlockChallenge && val.length === 6);
+    privateUnlockConfirm.classList.toggle('hidden', val.length < 6);
+  }
+  // 6位自动提交
+  if (privateUnlockChallenge && val.length === 6) {
+    setTimeout(() => privateUnlockConfirm?.click(), 80);
+  }
+});
+
+privateUnlockConfirm?.addEventListener('click', async () => {
+  if (!privateUnlockChallenge) return;
+  const code = privateUnlockCodeInput?.value.trim();
+  if (!code || code.length !== 6) return;
+  try {
+    privateUnlockConfirm.disabled = true;
+    const r = await authFetch('/api/messages/private/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge: privateUnlockChallenge, code }) });
+    const d = await r.json();
+    if (!r.ok) {
+      if (privateUnlockHint) { privateUnlockHint.textContent = d.code === 'AUTH_FAILED' ? '验证码错误或已过期' : d.code === 'CODE_REQUIRED' ? '请先发送验证码' : '验证失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); }
+      privateUnlockConfirm.disabled = false;
+      privateUnlockConfirm.classList.remove('hidden');
+      return;
+    }
+    // 会话级解锁——按选定时长重渲所有卡片
+    applyPrivateUnlock(selectedUnlockDuration);
+    closePrivateUnlockModal();
+    renderMessages();
+    if (currentTab === 'favorites') renderFavorites();
+    const durationLabel = selectedUnlockDuration > 0 ? `${selectedUnlockDuration / 60} 分钟后自动重锁` : selectedUnlockDuration === -1 ? '已永久解锁' : '已解锁本次会话';
+    showToast(durationLabel);
+  } catch { if (privateUnlockHint) { privateUnlockHint.textContent = '操作失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); } if (privateUnlockConfirm) privateUnlockConfirm.disabled = false; }
+});
+
+privateUnlockClose?.addEventListener('click', closePrivateUnlockModal);
+privateUnlockCancel?.addEventListener('click', closePrivateUnlockModal);
+privateUnlockModal?.addEventListener('click', (e) => { if (e.target === privateUnlockModal) closePrivateUnlockModal(); });
 
 // 全窗口拖拽上传支持
 let dragCounter = 0;
@@ -5184,6 +6318,84 @@ if (remarkInput) {
       saveRemark();
     }
   });
+  remarkInput.addEventListener('blur', () => {
+    setTimeout(hideRemarkAutocomplete, 150);
+  });
+}
+
+// ========== 备注自动补全 ==========
+const remarkAutocompleteEl = document.getElementById('remark-autocomplete');
+let remarkAutocompleteIndex = -1;
+
+function getRemarkSuggestions(q) {
+  const allMsgs = [...messages, ...favorites];
+  const cats = aggregateCategories(allMsgs);
+  if (!q) return cats.slice(0, 8);
+  const lower = q.toLowerCase();
+  return cats.filter(c => c.remark.toLowerCase().includes(lower)).slice(0, 8);
+}
+
+function remarkAutocompleteActive() {
+  return remarkAutocompleteEl && !remarkAutocompleteEl.classList.contains('hidden');
+}
+
+function hideRemarkAutocomplete() {
+  remarkAutocompleteEl?.classList.add('hidden');
+  remarkAutocompleteIndex = -1;
+}
+
+function updateRemarkAutocomplete() {
+  if (!remarkAutocompleteEl || !remarkInput) return;
+  const q = remarkInput.value.trim();
+  const suggestions = getRemarkSuggestions(q);
+  if (suggestions.length === 0) { hideRemarkAutocomplete(); return; }
+
+  remarkAutocompleteIndex = -1;
+  remarkAutocompleteEl.innerHTML = '';
+  suggestions.forEach(({ remark, count }) => {
+    const { dot } = remarkToColor(remark);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'remark-autocomplete-item';
+    btn.setAttribute('role', 'option');
+    btn.innerHTML = `
+      <span class="remark-autocomplete-item-dot" style="background:${dot}"></span>
+      <span class="remark-autocomplete-item-text">${remark}</span>
+      <span class="remark-autocomplete-item-count">${count} 条</span>
+    `;
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      remarkInput.value = remark;
+      updateRemarkCharCount();
+      hideRemarkAutocomplete();
+      if (remarkClearBtn) remarkClearBtn.classList.remove('hidden');
+    });
+    remarkAutocompleteEl.appendChild(btn);
+  });
+  remarkAutocompleteEl.classList.remove('hidden');
+}
+
+function navigateRemarkAutocomplete(dir) {
+  if (!remarkAutocompleteActive()) return;
+  const items = remarkAutocompleteEl.querySelectorAll('.remark-autocomplete-item');
+  if (!items.length) return;
+  remarkAutocompleteIndex = Math.max(-1, Math.min(items.length - 1, remarkAutocompleteIndex + dir));
+  items.forEach((item, i) => item.classList.toggle('is-active', i === remarkAutocompleteIndex));
+  if (remarkAutocompleteIndex >= 0) {
+    remarkInput.value = items[remarkAutocompleteIndex].querySelector('.remark-autocomplete-item-text').textContent;
+    updateRemarkCharCount();
+  }
+}
+
+function confirmRemarkAutocomplete() {
+  if (!remarkAutocompleteActive()) return;
+  const active = remarkAutocompleteEl.querySelector('.remark-autocomplete-item.is-active');
+  if (active) {
+    remarkInput.value = active.querySelector('.remark-autocomplete-item-text').textContent;
+    updateRemarkCharCount();
+    if (remarkClearBtn) remarkClearBtn.classList.remove('hidden');
+  }
+  hideRemarkAutocomplete();
 }
 
 if (remarkModal) {

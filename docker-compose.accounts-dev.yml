@@ -17,6 +17,10 @@ services:
       AUTH_KEY_ID: local-dev
       SENSITIVE_KEYRING_FILE: /run/secrets/content-keyring.json
       TZ: Asia/Shanghai
+      DONOTE_TEST_MODE: "1"
+      AUTH_TOTP_OPTIONAL: "1"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}
@@ -28,6 +32,7 @@ services:
     volumes:
       - ./.dev-data/accounts-local:/app/data
       - ./.dev-data/accounts-keys:/run/secrets:ro
+      - ./app/public:/app/public
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get({host:'127.0.0.1',port:3000,path:'/api/version'},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s

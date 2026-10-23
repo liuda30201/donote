@@ -3,12 +3,13 @@ const path = require('path');
 const { MULTI_USER_MODE, STORAGE_ROOT, UPLOAD_ROOT, MIGRATE_DEFAULT_USER, userPasswordMap } = require('./config');
 const { ensureDir, clampPageSize } = require('./utils');
 
-// 用户数据存储结构: userId -> { messages, lastActivity }
+// 用户数据存储结构: userId -> { messages, groups, lastActivity }
 const userStates = new Map();
 
 // 全局状态（单用户模式使用）
 const singleUserState = {
   messages: [],
+  groups: [],
   lastActivity: Date.now()
 };
 let persistTask = null;
@@ -142,8 +143,13 @@ function normalizePersistedState(state) {
     ? state.lastActivity
     : Date.now();
 
+  const persistedGroups = Array.isArray(state.groups)
+    ? state.groups.filter(g => typeof g === 'string' && g.trim().length > 0 && g.length <= 30).map(g => g.trim())
+    : [];
+
   return {
     messages: normalizedMessages,
+    groups: persistedGroups,
     lastActivity: persistedLastActivity
   };
 }
@@ -357,7 +363,7 @@ function getMessagesPage({ before, limit, userId = null }) {
 // 全量搜索消息（服务端）
 // q 关键词 / type 类型筛选 / from-to 时间范围 / before 翻页游标（取更早的）
 // 结果按时间倒序（新 -> 旧），便于查看最近匹配
-function searchMessages({ q, type, from, to, before, limit, userId = null }) {
+function searchMessages({ q, type, from, to, before, limit, userId = null, scope = 'all' }) {
   const state = getUserState(userId);
   const pageLimit = clampPageSize(limit);
   const keyword = String(q || '').trim().toLowerCase();
@@ -375,15 +381,22 @@ function searchMessages({ q, type, from, to, before, limit, userId = null }) {
 
     if (!keyword) return true;
     if (item.sensitive === true) return false;
+    if (item.private === true) return false;
 
     const haystacks = [];
-    if (item.type === 'text') {
-      haystacks.push(typeof item.content === 'string' ? item.content : '');
-    } else if (item.type === 'file') {
-      haystacks.push(item.content && typeof item.content.name === 'string' ? item.content.name : '');
+    if (scope === 'note') {
+      // 备注模式：只搜 remark 字段，且只返回有备注的卡片
+      if (!item.remark) return false;
+      haystacks.push(typeof item.remark === 'string' ? item.remark : '');
+    } else {
+      if (item.type === 'text') {
+        haystacks.push(typeof item.content === 'string' ? item.content : '');
+      } else if (item.type === 'file') {
+        haystacks.push(item.content && typeof item.content.name === 'string' ? item.content.name : '');
+      }
+      haystacks.push(typeof item.remark === 'string' ? item.remark : '');
+      haystacks.push(typeof item.title === 'string' ? item.title : '');
     }
-    // 三种类型都匹配备注
-    haystacks.push(typeof item.remark === 'string' ? item.remark : '');
 
     return haystacks.some((text) => text.toLowerCase().includes(keyword));
   });

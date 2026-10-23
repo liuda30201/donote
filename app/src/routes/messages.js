@@ -86,7 +86,8 @@ router.get('/search', requireAuth, (req, res) => {
     to,
     before: num(req.query.before),
     limit: num(req.query.limit) || 50,
-    userId
+    userId,
+    scope: typeof req.query.scope === 'string' && req.query.scope === 'note' ? 'note' : 'all'
   });
 
   res.json({
@@ -303,5 +304,107 @@ const handleUpdateRemark = async (req, res) => {
 
 router.patch('/:id/remark', requireAuth, handleUpdateRemark);
 router.post('/:id/remark', requireAuth, handleUpdateRemark);
+
+// 更新分类标题
+const handleUpdateTitle = async (req, res) => {
+  const userId = req.userId;
+  const state = getUserState(userId);
+  const { id } = req.params;
+  const message = state.messages.find((item) => item.id === id);
+  if (!message) return res.status(404).json({ error: '消息不存在' });
+  const title = typeof req.body.title === 'string' ? req.body.title.trim().slice(0, 30) : '';
+  await commitUserMutation(userId, candidate => {
+    const current = candidate.messages.find(item => item.id === id);
+    if (!current) throw Object.assign(new Error('not found'), { status: 404 });
+    if (title) current.title = title;
+    else delete current.title;
+  });
+  const committed = getUserState(userId).messages.find(item => item.id === id);
+  const publicMessage = toPublicMessage(committed, userId);
+  req.app.get('io').broadcastTitle(userId, { id, title: publicMessage.title || '', message: publicMessage });
+  return res.json({ success: true, message: publicMessage });
+};
+router.patch('/:id/title', requireAuth, handleUpdateTitle);
+router.post('/:id/title', requireAuth, handleUpdateTitle);
+
+// ——— 分组管理（groups）———
+// 获取分组列表
+router.get('/groups', requireAuth, (req, res) => {
+  const state = getUserState(req.userId);
+  return res.json({ groups: state.groups || [] });
+});
+
+// 新增分组
+router.post('/groups', requireAuth, async (req, res) => {
+  const name = typeof req.body.name === 'string' ? req.body.name.trim().slice(0, 30) : '';
+  if (!name) return res.status(400).json({ code: 'INVALID_NAME' });
+  const state = getUserState(req.userId);
+  if ((state.groups || []).includes(name)) return res.json({ groups: state.groups });
+  await commitUserMutation(req.userId, candidate => {
+    if (!Array.isArray(candidate.groups)) candidate.groups = [];
+    if (!candidate.groups.includes(name)) candidate.groups.push(name);
+  });
+  const newState = getUserState(req.userId);
+  req.app.get('io').broadcastGroups(req.userId, { groups: newState.groups });
+  return res.json({ groups: newState.groups });
+});
+
+// 删除分组（同时清空该分组下所有卡片的 title）
+router.delete('/groups/:name', requireAuth, async (req, res) => {
+  const name = decodeURIComponent(req.params.name);
+  await commitUserMutation(req.userId, candidate => {
+    if (!Array.isArray(candidate.groups)) candidate.groups = [];
+    candidate.groups = candidate.groups.filter(g => g !== name);
+    candidate.messages.forEach(m => { if (m.title === name) delete m.title; });
+  });
+  const newState = getUserState(req.userId);
+  req.app.get('io').broadcastGroups(req.userId, { groups: newState.groups });
+  return res.json({ groups: newState.groups });
+});
+
+// ——— 隐私标记（private）———
+// 加锁/解锁（永久改 DB 字段，无需验证——内容从未加密，只是前端遮罩）
+router.post('/:id/private/toggle', requireAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const userId = req.userId;
+    const state = getUserState(userId);
+    const id = req.params.id;
+    const record = state.messages.find(item => item.id === id);
+    if (!record) return res.status(404).json({ code: 'MESSAGE_NOT_FOUND' });
+
+    const targetPrivate = !record.private;
+    await commitUserMutation(userId, candidate => {
+      const msg = candidate.messages.find(item => item.id === id);
+      if (!msg) throw Object.assign(new Error('not found'), { status: 404 });
+      if (targetPrivate) msg.private = true;
+      else delete msg.private;
+    });
+
+    const committed = getUserState(userId).messages.find(item => item.id === id);
+    const publicMessage = toPublicMessage(committed, userId);
+    req.app.get('io').broadcastPrivate(userId, publicMessage);
+    return res.json({ success: true, message: publicMessage });
+  } catch (error) { return res.status(error.status || 500).json({ code: error.code || 'INTERNAL_ERROR' }); }
+});
+
+// 会话解锁验证——消费邮箱验证码，不改 DB，只是证明身份
+router.post('/private/verify', requireAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const authService = req.app.get('authService');
+    if (!authService) return res.status(503).json({ code: 'AUTH_UNAVAILABLE' });
+    const userId = req.userId;
+    const { challenge, code } = req.body || {};
+    if (!challenge || !code) return res.status(400).json({ code: 'CODE_REQUIRED' });
+    authService.emailVerification.consume(challenge, code, {
+      userId,
+      purpose: 'reauth',
+      sessionId: authService.authenticateRequest(req).session.id,
+      target: { action: 'private' }
+    }, () => true);
+    return res.json({ success: true });
+  } catch (error) { return res.status(error.status || 500).json({ code: error.code || 'INTERNAL_ERROR' }); }
+});
 
 module.exports = router;

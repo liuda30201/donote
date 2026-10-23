@@ -100,6 +100,7 @@ function createAuthRouter({ authService, version = APP_VERSION }) {
   sessionRouter.post('/auth/enrollment/skip', endpoint((req, res) => { jsonRequest(req); res.json(authService.skipPostLoginSetup(req)); }));
   sessionRouter.get('/auth/verification', endpoint((req,res)=>res.json(authService.emailVerification.settings(req))));
   sessionRouter.post('/auth/email/reauth', endpoint(async(req,res)=>{jsonRequest(req);res.json(await authService.emailVerification.sendReauth(req));}));
+  sessionRouter.post('/auth/email/private-unlock', endpoint(async(req,res)=>{jsonRequest(req);res.json(await authService.emailVerification.sendPrivateUnlock(req));}));
   sessionRouter.post('/auth/email/start', endpoint(async(req,res)=>{jsonRequest(req);res.json(await authService.emailVerification.startBind(req));}));
   sessionRouter.post('/auth/email/confirm', endpoint((req,res)=>{jsonRequest(req);const result=authService.emailVerification.confirmBind(req);notify(req);res.json(result);}));
   sessionRouter.post('/auth/verification', endpoint(async(req,res)=>{jsonRequest(req);const result=await authService.emailVerification.change(req);notify(req);res.json(result);}));
