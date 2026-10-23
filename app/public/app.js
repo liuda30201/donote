@@ -5475,7 +5475,6 @@ const privateUnlockDurationRow = document.getElementById('private-unlock-duratio
 const privateCustomDuration = document.getElementById('private-custom-duration');
 const privateCustomHours = document.getElementById('private-custom-hours');
 const privateUnlockModeNote = document.getElementById('private-unlock-mode-note');
-const privateUnlockGlobalBtn = document.getElementById('private-unlock-global-btn');
 
 let privateUnlockMessageId = null;
 let privateUnlockChallenge = null;
@@ -5644,7 +5643,6 @@ privateUnlockConfirm?.addEventListener('click', async () => {
 
 privateUnlockClose?.addEventListener('click', closePrivateUnlockModal);
 privateUnlockCancel?.addEventListener('click', closePrivateUnlockModal);
-privateUnlockGlobalBtn?.addEventListener('click', () => openPrivateUnlockModal());
 privateUnlockModal?.addEventListener('click', (e) => {
   if (e.target === privateUnlockModal || e.target.classList.contains('private-unlock-backdrop')) {
     closePrivateUnlockModal();

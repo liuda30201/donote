@@ -1029,13 +1029,6 @@ a:focus-visible,
   gap: var(--space-2);
 }
 
-.topbar-private-unlock {
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 0.76rem;
-  white-space: nowrap;
-}
-
 /* 顶栏显眼卡片缩放控制器（− 滑块 + 像素徽章） */
 .topbar-zoom-control {
   display: inline-flex;
