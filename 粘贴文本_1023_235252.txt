@@ -1,0 +1,47 @@
+liu@liuqiangdeMacBook-Pro web-clipboard % docker compose -f docker-compose.accounts-dev.yml ps
+
+NAME                  IMAGE                       COMMAND                   SERVICE   CREATED        STATUS                 PORTS
+web-clipboard-app-1   donote-accounts-local:dev   "docker-entrypoint.s…"   app       30 hours ago   Up 4 hours (healthy)   127.0.0.1:3001->3000/tcp
+liu@liuqiangdeMacBook-Pro web-clipboard % docker compose -f docker-compose.accounts-dev.yml logs \
+  --since=30m --tail=200 app
+app-1  | 清理任务失败 (expired): QuotaError: Account unavailable
+app-1  |     at account (/app/src/quota-runtime.js:16:49)
+app-1  |     at Object.task (/app/src/quota-runtime.js:26:5)
+app-1  |     at /app/src/quota.js:372:25 {
+app-1  |   code: 'ACCOUNT_UNAVAILABLE'
+app-1  | }
+app-1  | 清理任务失败 (expired): QuotaError: Account unavailable
+app-1  |     at account (/app/src/quota-runtime.js:16:49)
+app-1  |     at Object.task (/app/src/quota-runtime.js:26:5)
+app-1  |     at /app/src/quota.js:372:25 {
+app-1  |   code: 'ACCOUNT_UNAVAILABLE'
+app-1  | }
+app-1  | 清理任务失败 (expired): QuotaError: Account unavailable
+app-1  |     at account (/app/src/quota-runtime.js:16:49)
+app-1  |     at Object.task (/app/src/quota-runtime.js:26:5)
+app-1  |     at /app/src/quota.js:372:25 {
+app-1  |   code: 'ACCOUNT_UNAVAILABLE'
+app-1  | }
+app-1  | 清理任务失败 (expired): QuotaError: Account unavailable
+app-1  |     at account (/app/src/quota-runtime.js:16:49)
+app-1  |     at Object.task (/app/src/quota-runtime.js:26:5)
+app-1  |     at /app/src/quota.js:372:25 {
+app-1  |   code: 'ACCOUNT_UNAVAILABLE'
+app-1  | }
+app-1  | 清理任务失败 (orphans): QuotaError: Account unavailable
+app-1  |     at account (/app/src/quota-runtime.js:16:49)
+app-1  |     at Object.task (/app/src/quota-runtime.js:26:5)
+app-1  |     at /app/src/quota.js:372:25 {
+app-1  |   code: 'ACCOUNT_UNAVAILABLE'
+app-1  | }
+app-1  | 清理任务失败 (expired): QuotaError: Account unavailable
+app-1  |     at account (/app/src/quota-runtime.js:16:49)
+app-1  |     at Object.task (/app/src/quota-runtime.js:26:5)
+app-1  |     at /app/src/quota.js:372:25 {
+app-1  |   code: 'ACCOUNT_UNAVAILABLE'
+app-1  | }
+app-1  | 清理任务失败 (expired): QuotaError: Account unavailable
+app-1  |     at account (/app/src/quota-runtime.js:16:49)
+app-1  |     at Object.task (/app/src/quota-runtime.js:26:5)
+app-1  |     at /app/src/quota.js:372:25 {
+app-1  |   code: 'ACCOUNT_UNAVAILABLE'
