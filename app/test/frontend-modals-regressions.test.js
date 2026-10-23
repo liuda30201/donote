@@ -141,6 +141,18 @@ test('顶部搜索框已合并为统一全局搜索（移除全部/备注切换�
     /\.topbar-search::-webkit-search-cancel-button[\s\S]*?display:\s*none/,
     'style.css 应隐藏 .topbar-search 的原生 ::-webkit-search-cancel-button 清除按钮'
   );
+
+  // 5. 搜索框有内容或处于搜索态（即使失焦/鼠标移开）时隐藏快捷键提示 #search-shortcut-kbd (⌘K / /)
+  assert.match(
+    styleCss,
+    /\.topbar-search:not\(:placeholder-shown\)\s*~\s*\.search-kbd/,
+    'style.css 应在输入框非空 (:not(:placeholder-shown)) 时隐藏 .search-kbd'
+  );
+  assert.match(
+    appJs,
+    /function syncSearchAdornments\(\)/,
+    'app.js 应通过 syncSearchAdornments 同步控制清除按钮与快捷键徽章显隐'
+  );
 });
 
 

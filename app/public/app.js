@@ -846,8 +846,19 @@ const SEARCH_PAGE_SIZE = 50;
 
 const searchInput = document.getElementById('toolbar-search');
 const searchClearBtn = document.getElementById('toolbar-clear');
+const searchShortcutKbd = document.getElementById('search-shortcut-kbd');
 const toolbarStatus = document.getElementById('toolbar-status');
 const loadOlderBtn = document.getElementById('load-older-btn');
+
+function syncSearchAdornments() {
+  const hasQuery = Boolean(searchInput && searchInput.value.trim());
+  if (searchClearBtn) {
+    searchClearBtn.classList.toggle('hidden', !hasQuery);
+  }
+  if (searchShortcutKbd) {
+    searchShortcutKbd.classList.toggle('hidden', hasQuery || searchState.active);
+  }
+}
 
 const searchState = {
   active: false,
@@ -968,7 +979,7 @@ function exitSearchMode() {
   searchState.seq += 1;
   searchLastKey = '';
   setToolbarStatus('', false);
-  if (searchClearBtn) searchClearBtn.classList.add('hidden');
+  syncSearchAdornments();
   if (wasActive) {
     renderMessages();
   } else {
@@ -979,9 +990,7 @@ function exitSearchMode() {
 async function performSearch({ force = false } = {}) {
   const q = searchInput ? searchInput.value.trim() : '';
 
-  if (searchClearBtn) {
-    searchClearBtn.classList.toggle('hidden', !q);
-  }
+  syncSearchAdornments();
 
   if (!q) {
     exitSearchMode();
@@ -1030,6 +1039,7 @@ async function performSearch({ force = false } = {}) {
 }
 
 function scheduleSearch() {
+  syncSearchAdornments();
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => {
     searchDebounceTimer = null;
@@ -1103,7 +1113,6 @@ if (searchClearBtn) {
       searchInput.value = '';
       searchInput.focus();
     }
-    searchClearBtn.classList.add('hidden');
     exitSearchMode();
   });
 }

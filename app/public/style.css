@@ -930,9 +930,13 @@ a:focus-visible,
   color: var(--accent);
 }
 
-.topbar-search-wrapper:focus-within .search-kbd {
+.topbar-search-wrapper:focus-within .search-kbd,
+.topbar-search:not(:placeholder-shown) ~ .search-kbd,
+.search-input-inner:has(.topbar-search-clear:not(.hidden)) .search-kbd,
+.search-kbd.hidden {
   opacity: 0;
   pointer-events: none;
+  visibility: hidden;
 }
 
 .search-kbd {
