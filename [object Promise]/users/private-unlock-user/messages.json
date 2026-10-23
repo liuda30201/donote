@@ -1,0 +1,26 @@
+{
+  "messages": [
+    {
+      "id": "card-current",
+      "type": "text",
+      "timestamp": 1,
+      "content": "current",
+      "remark": ""
+    },
+    {
+      "id": "card-other",
+      "type": "text",
+      "timestamp": 2,
+      "content": "other",
+      "remark": ""
+    },
+    {
+      "id": "card-public",
+      "type": "text",
+      "timestamp": 3,
+      "content": "public",
+      "remark": ""
+    }
+  ],
+  "lastActivity": 1792742186934
+}

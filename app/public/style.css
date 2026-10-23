@@ -5468,107 +5468,91 @@ a:focus-visible,
   stroke: var(--accent);
 }
 
-/* 解锁时长选择按钮组 */
-.private-unlock-duration-row {
-  display: flex;
-  gap: 6px;
-  width: 100%;
-  flex-wrap: wrap;
-  justify-content: center;
-  margin: 2px 0 4px;
-}
-
-.private-duration-btn {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 30px;
-  padding: 0 8px;
-  border: 1.5px solid var(--border-subtle);
-  border-radius: var(--radius-full);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all var(--transition-fast);
-}
-
-.private-duration-btn:hover {
-  border-color: var(--accent-border);
-  color: var(--accent);
-}
-
-.private-duration-btn.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  color: var(--accent);
-  font-weight: 600;
-}
+/* ==========================================================================
+   隐私安全验证弹窗 (Apple HIG Security Sheet 风格重设计)
+   ========================================================================== */
 
 .private-unlock-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(15, 23, 42, 0.44);
+  backdrop-filter: saturate(160%) blur(10px);
+  -webkit-backdrop-filter: saturate(160%) blur(10px);
   z-index: 0;
 }
 
 .private-unlock-content {
   position: relative;
   z-index: 1;
-  width: min(320px, 90vw);
-  padding: var(--space-6) var(--space-5) var(--space-4);
-  background: var(--bg-surface-elevated);
-  border: 1px solid var(--border-subtle);
-  border-radius: 20px;
-  box-shadow: var(--shadow-popover);
+  width: min(410px, calc(100vw - 28px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 24px 22px 20px;
+  background:
+    radial-gradient(280px 140px at 50% 0%, var(--accent-soft), transparent 72%),
+    var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 22px;
+  box-shadow: var(--shadow-modal);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-  text-align: center;
+  gap: 16px;
+  text-align: left;
+  animation: fadeScaleIn var(--transition-normal);
 }
 
 /* 顶部关闭按钮 */
 .private-unlock-close-x {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 28px;
-  height: 28px;
+  top: 14px;
+  right: 14px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  border: none;
-  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
   color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-.private-unlock-close-x:hover {
-  background: var(--border-subtle);
-  color: var(--text-primary);
+  transition: background-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast), border-color var(--transition-fast);
 }
 
-/* 锁图标 */
+.private-unlock-close-x:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  transform: scale(1.05);
+}
+
+/* 头部：盾牌锁徽章 + 标题 + 副标题 */
+.private-unlock-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 2px 16px 0;
+}
+
 .private-unlock-lock-icon {
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   border-radius: 14px;
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--brand-gradient);
+  color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: var(--space-1);
+  margin-bottom: 4px;
+  box-shadow: 0 8px 20px -4px rgba(245, 99, 20, 0.42), 0 0 0 4px var(--accent-soft);
 }
 
 .private-unlock-title {
-  font-size: 1.05rem;
+  font-size: 1.12rem;
   font-weight: 700;
+  letter-spacing: -0.015em;
   color: var(--text-primary);
   margin: 0;
   line-height: 1.3;
@@ -5576,21 +5560,47 @@ a:focus-visible,
 
 .private-unlock-subtitle {
   font-size: 0.8rem;
-  color: var(--text-muted);
-  margin: 0 0 var(--space-1);
-  line-height: 1.5;
-  max-width: 240px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.48;
+  max-width: 320px;
 }
 
+/* 中部配置卡片容器 */
+.private-unlock-config-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+}
+
+.private-unlock-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.private-unlock-field-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+/* 解锁范围：双列精致选择卡 */
 .private-unlock-scope-row {
   width: 100%;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   border: 0;
   padding: 0;
-  margin: 2px 0;
-  justify-content: center;
+  margin: 0;
 }
+
 .private-unlock-scope-row legend {
   position: absolute;
   width: 1px;
@@ -5598,117 +5608,356 @@ a:focus-visible,
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
-.private-unlock-scope-row label {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 8px 6px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: 0.76rem;
-  cursor: pointer;
-}
-.private-unlock-scope-row label:has(input:checked) {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-}
-.private-unlock-scope-row input { margin-right: 4px; accent-color: var(--accent); }
-.private-custom-duration { width: 100%; display: grid; gap: 4px; text-align: left; }
-.private-custom-duration label { color: var(--text-secondary); font-size: 0.76rem; }
-.private-custom-duration input { width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-primary); font: inherit; }
-.private-custom-duration input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.private-custom-duration p, .private-unlock-mode-note { width: 100%; margin: 0; color: var(--text-muted); font-size: 0.72rem; line-height: 1.4; }
 
-/* 发送验证码按钮 */
-.private-unlock-send-btn {
-  width: 100%;
-  height: 40px;
-  font-size: 0.88rem;
-  font-weight: 500;
-  border: 1.5px solid var(--border-strong);
-  background: transparent;
+.private-unlock-scope-row label {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface);
   color: var(--text-secondary);
-  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
-  margin-top: var(--space-1);
+  user-select: none;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
 }
-.private-unlock-send-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
+
+.private-unlock-scope-row label:hover:not(:has(input:disabled)) {
+  border-color: var(--border-strong);
+}
+
+.private-unlock-scope-row input[type="radio"] {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.private-scope-title {
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--text-primary);
-  border-color: var(--accent-border);
+  padding-right: 18px;
+  line-height: 1.3;
 }
-.private-unlock-send-btn:disabled {
-  opacity: 0.45;
+
+.private-scope-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.25;
+}
+
+.private-unlock-scope-row label:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--bg-surface) 90%, var(--accent) 10%);
+  box-shadow: 0 2px 8px -2px rgba(245, 99, 20, 0.18);
+}
+
+.private-unlock-scope-row label:has(input:checked) .private-scope-title {
+  color: var(--accent);
+}
+
+.private-unlock-scope-row label:has(input:disabled) {
+  opacity: 0.48;
   cursor: not-allowed;
 }
 
-/* 验证码输入框 */
-.private-unlock-input {
+/* 解锁时长：4 等分分段胶囊控制器 (Segmented Control) */
+.private-unlock-duration-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
   width: 100%;
-  height: 52px;
-  padding: 0 var(--space-3);
-  border: 1.5px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  padding: 3px;
+  background: color-mix(in srgb, var(--bg-surface) 60%, var(--border-subtle) 40%);
+  border: 1px solid var(--border-subtle);
+  border-radius: 11px;
+  margin: 0;
+}
+
+.private-duration-btn {
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.private-duration-btn:hover:not(:disabled):not(.active) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.private-duration-btn.active {
+  background: var(--bg-surface);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1);
+}
+
+.private-duration-btn.is-permanent.active {
+  color: var(--danger);
+}
+
+.private-duration-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 自定义时长内嵌栏 */
+.private-custom-duration {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 4px;
+  animation: fadeIn var(--transition-fast);
+}
+
+.private-custom-input-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.private-custom-input-row label {
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.private-custom-hours-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 136px;
+}
+
+.private-custom-hours-wrap input {
+  width: 100%;
+  height: 34px;
+  padding: 0 38px 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
   background: var(--bg-surface);
   color: var(--text-primary);
-  font-size: 1.6rem;
-  font-weight: 700;
-  letter-spacing: 0.35em;
-  text-align: center;
+  font-size: 0.84rem;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
-.private-unlock-input:focus {
+
+.private-custom-hours-wrap input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.private-unlock-input::placeholder {
-  font-size: 1rem;
-  font-weight: 400;
-  letter-spacing: 0.25em;
-  color: var(--text-muted);
+  box-shadow: var(--focus-ring);
 }
 
-/* 提示文字 */
-.private-unlock-hint {
-  font-size: 0.78rem;
+.private-custom-unit {
+  position: absolute;
+  right: 10px;
+  font-size: 0.74rem;
   color: var(--text-muted);
+  pointer-events: none;
+}
+
+.private-custom-duration p {
   margin: 0;
-  width: 100%;
-  text-align: center;
-}
-.private-unlock-hint.is-error {
-  color: var(--color-danger, #e53e3e);
-}
-
-/* 解锁按钮（6位后出现） */
-.private-unlock-confirm-btn {
-  width: 100%;
-  height: 40px;
-  font-size: 0.88rem;
-  border-radius: var(--radius-md);
-}
-
-/* 取消链接 */
-.private-unlock-cancel-link {
-  display: block;
-  width: 100%;
-  text-align: center;
-  font-size: 0.8rem;
   color: var(--text-muted);
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: var(--space-1) 0 0;
-  transition: color var(--transition-fast);
+  font-size: 0.7rem;
+  line-height: 1.35;
 }
-.private-unlock-cancel-link:hover {
+
+/* 策略动态提示条 */
+.private-unlock-mode-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-surface) 75%, var(--accent-soft) 25%);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, var(--accent-border) 30%);
+  color: var(--accent);
+}
+
+.private-unlock-mode-banner svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.private-unlock-mode-note {
+  margin: 0;
   color: var(--text-secondary);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+/* 验证码核验区 */
+.private-unlock-verify-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.private-unlock-verify-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 发送验证码胶囊按钮 */
+.private-unlock-send-btn {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.private-unlock-send-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+  box-shadow: 0 3px 10px -2px rgba(245, 99, 20, 0.35);
+}
+
+.private-unlock-send-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--bg-subtle);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+}
+
+.private-unlock-code-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+/* 6 位验证码输入框：高辨识度等宽字符间距 + 柔和底槽 */
+.private-unlock-input {
+  width: 100%;
+  height: 50px;
+  padding: 0 14px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.private-unlock-input:focus {
+  outline: none;
+  background: var(--bg-surface);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.private-unlock-input::placeholder {
+  font-family: var(--font-sans);
+  font-size: 1.05rem;
+  font-weight: 400;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em;
+  color: var(--text-muted);
+  opacity: 0.65;
+}
+
+/* 提示文字 / 错误反馈横幅 */
+.private-unlock-hint {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.private-unlock-hint.is-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
+  font-weight: 500;
+}
+
+/* 底部操作按钮行 */
+.private-unlock-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.private-unlock-cancel-link {
+  flex: 1 1 0;
+  height: 40px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 11px;
+}
+
+.private-unlock-confirm-btn {
+  flex: 1.4 1 0;
+  height: 40px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 11px;
+  background: var(--brand-gradient);
+  border: none;
+  box-shadow: 0 4px 14px -2px rgba(245, 99, 20, 0.4);
+}
+
+.private-unlock-confirm-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 480px) {
+  .private-unlock-content {
+    padding: 20px 16px 16px;
+    gap: 14px;
+    border-radius: 18px;
+  }
+
+  .private-unlock-scope-row {
+    grid-template-columns: 1fr;
+  }
+
+  .private-unlock-duration-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .about-header {

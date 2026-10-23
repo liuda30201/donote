@@ -6,7 +6,8 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const root = fs.mkdtemp(path.join(os.tmpdir(), 'donote-private-unlock-'));
+const fsSync = require('node:fs');
+const root = fsSync.mkdtempSync(path.join(os.tmpdir(), 'donote-private-unlock-'));
 process.env.AUTH_MODE = 'accounts';
 process.env.AUTH_ORIGIN = 'https://private-unlock.test';
 process.env.STORAGE_ROOT = root;
