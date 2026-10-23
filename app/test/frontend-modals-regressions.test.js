@@ -118,3 +118,20 @@ test('卡片右下角备注最多显示 10 个字符（超出截断），且预�
   assert.doesNotMatch(viewerFnCode, /openRemarkModal/, '预览弹窗备注栏不应再弹出独立的 #remark-modal');
 });
 
+test('顶部搜索框已合并为统一全局搜索（移除全部/备注切换），隐私解锁弹窗移除到期重新加锁冗余提示并升级自定义时长组件', () => {
+  // 1. 顶部搜索框移除 .search-scope-tabs
+  assert.doesNotMatch(appHtml, /search-scope-tabs/, 'app.html 不应再包含搜索范围切换 .search-scope-tabs');
+  assert.doesNotMatch(appJs, /searchScope/, 'app.js 不应再保留 searchScope 状态切换');
+
+  // 2. 隐私解锁弹窗移除“到期后重新加锁”冗余文案
+  assert.doesNotMatch(appHtml, /到期后重新加锁/, 'app.html 不应包含“到期后重新加锁”提示文案');
+  assert.doesNotMatch(appJs, /到期后重新加锁/, 'app.js 不应生成“到期后重新加锁”提示文案');
+
+  // 3. 隐私解锁自定义时长具备快捷预设档位与步进器控件
+  assert.match(appHtml, /id="private-custom-presets"/, 'app.html 应包含常用自定义时长快捷预设栏 #private-custom-presets');
+  assert.match(appHtml, /id="private-custom-step-down"/, 'app.html 应包含减少时长步进按钮 #private-custom-step-down');
+  assert.match(appHtml, /id="private-custom-step-up"/, 'app.html 应包含增加时长步进按钮 #private-custom-step-up');
+  assert.match(appJs, /function setCustomHoursValue\(/, 'app.js 应包含自定义时长步进与预设同步函数 setCustomHoursValue');
+});
+
+

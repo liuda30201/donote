@@ -217,7 +217,6 @@ let requirePassword = true;
 let currentTab = 'messages';
 let currentTypeFilter = 'all'; // 'all' | 'text' | 'code' | 'link' | 'image' | 'file'
 let currentCategoryFilter = null; // null = 不筛选, string = 按分类标题筛选
-let searchScope = 'all'; // 'all' | 'note' 搜索范围
 let privateGlobalUnlockExpiresAt = 0;
 const privateCardUnlockExpiresAt = new Map();
 let privateRelockTimer = null; // 最近一次隐私解锁到期计时器
@@ -908,7 +907,6 @@ async function fetchSearchResults({ q, type, range, before, limit = SEARCH_PAGE_
   if (q) params.set('q', q);
   params.set('limit', String(limit));
   if (type && type !== 'all') params.set('type', type);
-  if (searchScope === 'note') params.set('scope', 'note');
   const from = rangeToFrom(range);
   if (Number.isFinite(from)) params.set('from', String(from));
   if (Number.isFinite(before)) params.set('before', String(before));
@@ -990,7 +988,7 @@ async function performSearch({ force = false } = {}) {
     return;
   }
 
-  const key = `${searchScope}:${q}`;
+  const key = `all:${q}`;
   if (!force && key === searchLastKey && searchState.active) return;
   searchLastKey = key;
 
@@ -5458,25 +5456,6 @@ socket.on('groups-update', (data) => {
   renderCategoryChips();
 });
 
-// ========== 搜索范围切换 ==========
-const searchScopeTabs = document.querySelectorAll('.search-scope-tab');
-searchScopeTabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    const scope = tab.dataset.scope;
-    if (scope === searchScope) return;
-    searchScope = scope;
-    searchScopeTabs.forEach(t => t.classList.toggle('active', t.dataset.scope === scope));
-    // 切到备注模式时清除分类筛选（互斥）
-    if (scope === 'note') {
-      currentCategoryFilter = null;
-      renderCategoryChips();
-    }
-    if (searchInput && searchInput.value.trim()) {
-      performSearch({ force: true });
-    }
-  });
-});
-
 // ========== 隐私卡片解锁弹窗 ==========
 const privateUnlockModal = document.getElementById('private-unlock-modal');
 const privateUnlockClose = document.getElementById('private-unlock-close');
@@ -5489,13 +5468,42 @@ const privateUnlockHint = document.getElementById('private-unlock-hint');
 const privateUnlockScopeRow = document.getElementById('private-unlock-scope-row');
 const privateUnlockDurationRow = document.getElementById('private-unlock-duration-row');
 const privateCustomDuration = document.getElementById('private-custom-duration');
+const privateCustomPresets = document.getElementById('private-custom-presets');
 const privateCustomHours = document.getElementById('private-custom-hours');
+const privateCustomStepDown = document.getElementById('private-custom-step-down');
+const privateCustomStepUp = document.getElementById('private-custom-step-up');
+const privateUnlockModeBanner = document.getElementById('private-unlock-mode-banner');
 const privateUnlockModeNote = document.getElementById('private-unlock-mode-note');
 
 let privateUnlockMessageId = null;
 let privateUnlockChallenge = null;
 let privateUnlockSelection = null;
 let privateUnlockCountdownTimer = null;
+
+function normalizeCustomHoursText(rawValue) {
+  let value = String(rawValue ?? '').replace(/[^0-9.]/g, '');
+  const dot = value.indexOf('.');
+  if (dot >= 0) value = `${value.slice(0, dot + 1)}${value.slice(dot + 1).replace(/\./g, '').slice(0, 1)}`;
+  const parts = value.split('.');
+  value = parts[0].slice(0, 3) + (parts.length > 1 ? `.${parts[1]}` : '');
+  return value;
+}
+
+function syncCustomPresetActive(hoursStr) {
+  const num = Number(hoursStr);
+  privateCustomPresets?.querySelectorAll('.private-custom-preset-chip').forEach(chip => {
+    chip.classList.toggle('active', Number.isFinite(num) && num > 0 && Number(chip.dataset.hours) === num);
+  });
+}
+
+function setCustomHoursValue(hoursVal) {
+  if (!privateCustomHours) return;
+  const num = Math.min(168, Math.max(0.5, Math.round(Number(hoursVal) * 2) / 2));
+  const formatted = Number.isInteger(num) ? String(num) : num.toFixed(1);
+  privateCustomHours.value = formatted;
+  syncCustomPresetActive(formatted);
+  updatePrivateUnlockModeNote();
+}
 
 function readPrivateUnlockSelection() {
   const scope = privateUnlockScopeRow?.querySelector('input[name="private-unlock-scope"]:checked')?.value;
@@ -5514,16 +5522,24 @@ function updatePrivateUnlockModeNote() {
   const selection = readPrivateUnlockSelection();
   const duration = privateUnlockDurationRow?.querySelector('.private-duration-btn.active')?.dataset.duration;
   privateCustomDuration?.classList.toggle('hidden', duration !== 'custom');
+  const isPermanent = duration === 'permanent';
+  privateUnlockModeBanner?.classList.toggle('hidden', !isPermanent);
   if (!privateUnlockModeNote) return;
-  if (duration === 'permanent') privateUnlockModeNote.textContent = selection?.scope === 'current' ? '验证并确认后，将永久移除当前卡片的 private 标记。' : '验证并确认后，将永久移除当前用户全部现有 private 卡片的标记。';
-  else if (duration === 'custom' && selection) privateUnlockModeNote.textContent = `${selection.scope === 'current' ? '仅显示当前卡片' : '显示全部 private 卡片'} ${selection.hours} 小时，到期后重新加锁。`;
-  else if (duration === 'custom') privateUnlockModeNote.textContent = '输入 0.1 至 168 小时，最多一位小数。';
-  else privateUnlockModeNote.textContent = `${selection?.scope === 'current' ? '仅显示当前卡片' : '显示全部 private 卡片'}，到期后重新加锁。`;
+  if (isPermanent) {
+    privateUnlockModeNote.textContent = selection?.scope === 'current'
+      ? '验证并确认后，将永久移除当前卡片的隐私锁定标记。'
+      : '验证并确认后，将永久移除当前用户全部现有隐私卡片的锁定标记。';
+  } else {
+    privateUnlockModeNote.textContent = '';
+  }
 }
 function setPrivateUnlockOptionsDisabled(disabled) {
   privateUnlockScopeRow?.querySelectorAll('input').forEach(input => { input.disabled = disabled || (input.value === 'current' && !privateUnlockMessageId); });
   privateUnlockDurationRow?.querySelectorAll('button').forEach(button => { button.disabled = disabled; });
+  privateCustomPresets?.querySelectorAll('button').forEach(button => { button.disabled = disabled; });
   if (privateCustomHours) privateCustomHours.disabled = disabled;
+  if (privateCustomStepDown) privateCustomStepDown.disabled = disabled;
+  if (privateCustomStepUp) privateCustomStepUp.disabled = disabled;
 }
 function openPrivateUnlockModal(messageId = null) {
   privateUnlockMessageId = typeof messageId === 'string' && messageId ? messageId : null;
@@ -5531,7 +5547,8 @@ function openPrivateUnlockModal(messageId = null) {
   privateUnlockSelection = null;
   privateUnlockScopeRow?.querySelectorAll('input[name="private-unlock-scope"]').forEach(input => { input.checked = input.value === (privateUnlockMessageId ? 'current' : 'all'); });
   privateUnlockDurationRow?.querySelectorAll('.private-duration-btn').forEach(button => { button.classList.toggle('active', button.dataset.duration === '600'); });
-  if (privateCustomHours) { privateCustomHours.value = ''; privateCustomHours.disabled = false; }
+  if (privateCustomHours) { privateCustomHours.value = '1'; privateCustomHours.disabled = false; }
+  syncCustomPresetActive('1');
   if (privateUnlockCodeInput) privateUnlockCodeInput.value = '';
   if (privateUnlockConfirm) { privateUnlockConfirm.disabled = true; privateUnlockConfirm.classList.add('hidden'); }
   if (privateUnlockHint) { privateUnlockHint.textContent = ''; privateUnlockHint.classList.add('hidden'); privateUnlockHint.classList.remove('is-error'); }
@@ -5566,15 +5583,52 @@ privateUnlockDurationRow?.addEventListener('click', event => {
   const button = event.target.closest('.private-duration-btn');
   if (!button || button.disabled) return;
   privateUnlockDurationRow.querySelectorAll('.private-duration-btn').forEach(item => item.classList.toggle('active', item === button));
+  if (button.dataset.duration === 'custom' && privateCustomHours && !privateCustomHours.value.trim()) {
+    privateCustomHours.value = '1';
+    syncCustomPresetActive('1');
+  }
   updatePrivateUnlockModeNote();
 });
+privateCustomPresets?.addEventListener('click', event => {
+  const chip = event.target.closest('.private-custom-preset-chip');
+  if (!chip || chip.disabled) return;
+  const hours = chip.dataset.hours;
+  if (privateCustomHours && hours) {
+    privateCustomHours.value = hours;
+    syncCustomPresetActive(hours);
+    updatePrivateUnlockModeNote();
+  }
+});
+privateCustomStepDown?.addEventListener('click', () => {
+  if (privateCustomStepDown.disabled) return;
+  const current = Number(privateCustomHours?.value) || 1;
+  const step = current <= 2 ? 0.5 : (current <= 24 ? 1 : 6);
+  setCustomHoursValue(Math.max(0.5, current - step));
+});
+privateCustomStepUp?.addEventListener('click', () => {
+  if (privateCustomStepUp.disabled) return;
+  const current = Number(privateCustomHours?.value) || 1;
+  const step = current < 2 ? 0.5 : (current < 24 ? 1 : 6);
+  setCustomHoursValue(Math.min(168, current + step));
+});
 privateCustomHours?.addEventListener('input', () => {
-  let value = privateCustomHours.value.replace(/[^0-9.]/g, '');
-  const dot = value.indexOf('.');
-  if (dot >= 0) value = `${value.slice(0, dot + 1)}${value.slice(dot + 1).replace(/\./g, '').slice(0, 1)}`;
-  const parts = value.split('.');
-  value = parts[0].slice(0, 3) + (parts.length > 1 ? `.${parts[1]}` : '');
+  const value = normalizeCustomHoursText(privateCustomHours.value);
   if (privateCustomHours.value !== value) privateCustomHours.value = value;
+  syncCustomPresetActive(value);
+  updatePrivateUnlockModeNote();
+});
+privateCustomHours?.addEventListener('blur', () => {
+  const raw = privateCustomHours.value.trim();
+  const num = Number(raw);
+  if (!raw || !Number.isFinite(num) || num <= 0) {
+    privateCustomHours.value = '1';
+  } else if (num > 168) {
+    privateCustomHours.value = '168';
+  } else {
+    const rounded = Math.round(num * 10) / 10;
+    privateCustomHours.value = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  }
+  syncCustomPresetActive(privateCustomHours.value);
   updatePrivateUnlockModeNote();
 });
 

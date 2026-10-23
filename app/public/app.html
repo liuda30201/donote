@@ -163,18 +163,14 @@
           </div>
         </div>
 
-        <!-- 居中搜索框：最容易发现的主入口 -->
+        <!-- 居中全局搜索框：同时搜索内容、分组与备注 -->
         <div class="topbar-search-wrapper" role="search">
-          <div class="search-scope-tabs" role="tablist" aria-label="搜索范围">
-            <button type="button" class="search-scope-tab active" data-scope="all" role="tab" aria-selected="true">全部</button>
-            <button type="button" class="search-scope-tab" data-scope="note" role="tab" aria-selected="false">备注</button>
-          </div>
           <div class="search-input-inner">
             <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="11" cy="11" r="8"></circle>
               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
-            <input id="toolbar-search" class="topbar-search" type="search" autocomplete="off" spellcheck="false" placeholder="搜索内容或备注" aria-label="搜索剪贴板">
+            <input id="toolbar-search" class="topbar-search" type="search" autocomplete="off" spellcheck="false" placeholder="搜索全部内容、分组与备注..." aria-label="全局搜索剪贴板">
             <span id="toolbar-status" class="toolbar-status" aria-live="polite"></span>
             <kbd id="search-shortcut-kbd" class="search-kbd" aria-hidden="true">/</kbd>
             <button id="toolbar-clear" class="topbar-search-clear hidden" type="button" title="清空搜索" aria-label="清空搜索">
@@ -1030,24 +1026,36 @@
             <button type="button" class="private-duration-btn is-permanent" data-duration="permanent">永久移除</button>
           </div>
           <div id="private-custom-duration" class="private-custom-duration hidden">
+            <div class="private-custom-presets" id="private-custom-presets" role="group" aria-label="常用自定义时长">
+              <button type="button" class="private-custom-preset-chip active" data-hours="1">1 小时</button>
+              <button type="button" class="private-custom-preset-chip" data-hours="2">2 小时</button>
+              <button type="button" class="private-custom-preset-chip" data-hours="6">6 小时</button>
+              <button type="button" class="private-custom-preset-chip" data-hours="24">1 天</button>
+              <button type="button" class="private-custom-preset-chip" data-hours="72">3 天</button>
+              <button type="button" class="private-custom-preset-chip" data-hours="168">7 天</button>
+            </div>
             <div class="private-custom-input-row">
-              <label for="private-custom-hours">自定义时长</label>
-              <div class="private-custom-hours-wrap">
-                <input id="private-custom-hours" type="text" inputmode="decimal" autocomplete="off" maxlength="5" placeholder="1.5" aria-describedby="private-duration-help">
-                <span class="private-custom-unit">小时</span>
+              <label for="private-custom-hours">精确时长</label>
+              <div class="private-custom-stepper">
+                <button type="button" id="private-custom-step-down" class="private-custom-step-btn" aria-label="减少时长">−</button>
+                <div class="private-custom-hours-wrap">
+                  <input id="private-custom-hours" type="text" inputmode="decimal" autocomplete="off" maxlength="5" value="1" placeholder="1" aria-describedby="private-duration-help">
+                  <span class="private-custom-unit">小时</span>
+                </div>
+                <button type="button" id="private-custom-step-up" class="private-custom-step-btn" aria-label="增加时长">+</button>
               </div>
             </div>
-            <p id="private-duration-help">支持 0.1 至 168 小时（7 天），最多一位小数</p>
+            <p id="private-duration-help">支持 0.1 ~ 168 小时（最长 7 天），可点选上方快捷档位或微调</p>
           </div>
         </div>
 
-        <div class="private-unlock-mode-banner">
+        <div id="private-unlock-mode-banner" class="private-unlock-mode-banner hidden">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10"></circle>
             <line x1="12" y1="16" x2="12" y2="12"></line>
             <line x1="12" y1="8" x2="12.01" y2="8"></line>
           </svg>
-          <p id="private-unlock-mode-note" class="private-unlock-mode-note" role="status">验证后仅显示当前卡片，10 分钟后重新加锁。</p>
+          <p id="private-unlock-mode-note" class="private-unlock-mode-note" role="status"></p>
         </div>
       </div>
 
