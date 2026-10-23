@@ -1991,6 +1991,7 @@ function createMessageElement(msg, isFavoritesView = false) {
     `;
 
     primaryHeaderAction = async () => {
+      if (msg.private && !isPrivateCardUnlocked(msg.id)) { openPrivateUnlockModal(msg.id); return; }
       if (imageData.hasOriginal) {
         await copyOriginalImageWithFallback(msg);
         flashButtonCopied(copyImageBtn, copyImageBtn.innerHTML);
@@ -5157,34 +5158,6 @@ socket.on('message-sensitive', (msg) => {
   renderMessages(); if (currentTab === 'favorites') renderFavorites();
 });
 
-function applyPrivateUnlock(duration) {
-  privateUnlocked = true;
-  privateUnlockDuration = duration;
-  // 清理之前的计时器
-  if (privateRelockTimer) { clearTimeout(privateRelockTimer); privateRelockTimer = null; }
-  // 临时解锁：设置自动重锁
-  if (duration > 0) {
-    privateRelockTimer = setTimeout(() => {
-      privateUnlocked = false;
-      privateUnlockDuration = 0;
-      privateRelockTimer = null;
-      renderMessages();
-      if (currentTab === 'favorites') renderFavorites();
-      showToast('隐私解锁已到期，卡片已重新锁定');
-    }, duration * 1000);
-  }
-}
-
-const privateUnlockDurationRow = document.getElementById('private-unlock-duration-row');
-let selectedUnlockDuration = 0; // 默认"本次会话"
-
-privateUnlockDurationRow?.addEventListener('click', (e) => {
-  const btn = e.target.closest('.private-duration-btn');
-  if (!btn) return;
-  privateUnlockDurationRow.querySelectorAll('.private-duration-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  selectedUnlockDuration = Number(btn.dataset.duration);
-});
 
 socket.on('message-private', (msg) => {
   if (!isAuthenticated || !msg?.id) return;
@@ -5449,96 +5422,176 @@ const privateUnlockSendBtn = document.getElementById('private-unlock-send-btn');
 const privateUnlockCodeInput = document.getElementById('private-unlock-code-input');
 const privateUnlockDesc = document.getElementById('private-unlock-desc');
 const privateUnlockHint = document.getElementById('private-unlock-hint');
+const privateUnlockScopeRow = document.getElementById('private-unlock-scope-row');
+const privateUnlockDurationRow = document.getElementById('private-unlock-duration-row');
+const privateCustomDuration = document.getElementById('private-custom-duration');
+const privateCustomHours = document.getElementById('private-custom-hours');
+const privateUnlockModeNote = document.getElementById('private-unlock-mode-note');
+const privateUnlockGlobalBtn = document.getElementById('private-unlock-global-btn');
 
-let privateUnlockMsgId = null;
+let privateUnlockMessageId = null;
 let privateUnlockChallenge = null;
-let privateUnlockCountdown = null;
+let privateUnlockSelection = null;
 let privateUnlockCountdownTimer = null;
 
-function openPrivateUnlockModal() {
-  privateUnlockMsgId = true; // 标记弹窗已打开（会话解锁不绑定具体消息）
+function readPrivateUnlockSelection() {
+  const scope = privateUnlockScopeRow?.querySelector('input[name="private-unlock-scope"]:checked')?.value;
+  const duration = privateUnlockDurationRow?.querySelector('.private-duration-btn.active')?.dataset.duration;
+  if (!['current', 'all'].includes(scope) || !['600', '1800', 'custom', 'permanent'].includes(duration)) return null;
+  if (scope === 'current' && !privateUnlockMessageId) return null;
+  const selection = { scope, ...(scope === 'current' ? { messageId: privateUnlockMessageId } : {}), duration };
+  if (duration === 'custom') {
+    const hours = privateCustomHours?.value.trim() || '';
+    if (!/^\d{1,3}(?:\.\d)?$/.test(hours) || Number(hours) <= 0 || Number(hours) > 168) return null;
+    selection.hours = hours;
+  }
+  return selection;
+}
+function updatePrivateUnlockModeNote() {
+  const selection = readPrivateUnlockSelection();
+  const duration = privateUnlockDurationRow?.querySelector('.private-duration-btn.active')?.dataset.duration;
+  privateCustomDuration?.classList.toggle('hidden', duration !== 'custom');
+  if (!privateUnlockModeNote) return;
+  if (duration === 'permanent') privateUnlockModeNote.textContent = selection?.scope === 'current' ? '验证并确认后，将永久移除当前卡片的 private 标记。' : '验证并确认后，将永久移除当前用户全部现有 private 卡片的标记。';
+  else if (duration === 'custom' && selection) privateUnlockModeNote.textContent = `${selection.scope === 'current' ? '仅显示当前卡片' : '显示全部 private 卡片'} ${selection.hours} 小时，到期后重新加锁。`;
+  else if (duration === 'custom') privateUnlockModeNote.textContent = '输入 0.1 至 168 小时，最多一位小数。';
+  else privateUnlockModeNote.textContent = `${selection?.scope === 'current' ? '仅显示当前卡片' : '显示全部 private 卡片'}，到期后重新加锁。`;
+}
+function setPrivateUnlockOptionsDisabled(disabled) {
+  privateUnlockScopeRow?.querySelectorAll('input').forEach(input => { input.disabled = disabled; });
+  privateUnlockDurationRow?.querySelectorAll('button').forEach(button => { button.disabled = disabled; });
+  if (privateCustomHours) privateCustomHours.disabled = disabled;
+}
+function openPrivateUnlockModal(messageId = null) {
+  privateUnlockMessageId = typeof messageId === 'string' && messageId ? messageId : null;
   privateUnlockChallenge = null;
+  privateUnlockSelection = null;
+  privateUnlockScopeRow?.querySelectorAll('input[name="private-unlock-scope"]').forEach(input => { input.checked = input.value === (privateUnlockMessageId ? 'current' : 'all'); });
+  privateUnlockDurationRow?.querySelectorAll('.private-duration-btn').forEach(button => { button.classList.toggle('active', button.dataset.duration === '600'); });
+  if (privateCustomHours) { privateCustomHours.value = ''; privateCustomHours.disabled = false; }
   if (privateUnlockCodeInput) privateUnlockCodeInput.value = '';
   if (privateUnlockConfirm) { privateUnlockConfirm.disabled = true; privateUnlockConfirm.classList.add('hidden'); }
   if (privateUnlockHint) { privateUnlockHint.textContent = ''; privateUnlockHint.classList.add('hidden'); privateUnlockHint.classList.remove('is-error'); }
   if (privateUnlockSendBtn) { privateUnlockSendBtn.disabled = false; privateUnlockSendBtn.textContent = '发送验证码'; }
-  if (privateUnlockDesc) privateUnlockDesc.textContent = '发送验证码到绑定邮箱，验证后解锁本次会话所有隐私卡片';
+  if (privateUnlockDesc) privateUnlockDesc.textContent = '发送验证码到绑定邮箱，验证后按所选范围与时长解锁。';
+  setPrivateUnlockOptionsDisabled(false);
+  updatePrivateUnlockModeNote();
   clearInterval(privateUnlockCountdownTimer);
   privateUnlockModal?.classList.remove('hidden');
   setTimeout(() => privateUnlockSendBtn?.focus(), 50);
 }
-
 function closePrivateUnlockModal() {
   privateUnlockModal?.classList.add('hidden');
-  privateUnlockMsgId = null;
+  privateUnlockMessageId = null;
   privateUnlockChallenge = null;
+  privateUnlockSelection = null;
+  setPrivateUnlockOptionsDisabled(false);
   clearInterval(privateUnlockCountdownTimer);
 }
-
 function startPrivateUnlockCountdown() {
-  privateUnlockCountdown = 60;
-  if (privateUnlockSendBtn) { privateUnlockSendBtn.disabled = true; privateUnlockSendBtn.textContent = `${privateUnlockCountdown}s`; }
+  let remaining = 60;
+  if (privateUnlockSendBtn) { privateUnlockSendBtn.disabled = true; privateUnlockSendBtn.textContent = `${remaining}s`; }
   clearInterval(privateUnlockCountdownTimer);
   privateUnlockCountdownTimer = setInterval(() => {
-    privateUnlockCountdown--;
-    if (privateUnlockSendBtn) privateUnlockSendBtn.textContent = `${privateUnlockCountdown}s`;
-    if (privateUnlockCountdown <= 0) {
-      clearInterval(privateUnlockCountdownTimer);
-      if (privateUnlockSendBtn) { privateUnlockSendBtn.disabled = false; privateUnlockSendBtn.textContent = '重新发送'; }
-    }
+    remaining--;
+    if (privateUnlockSendBtn) privateUnlockSendBtn.textContent = `${remaining}s`;
+    if (remaining <= 0) { clearInterval(privateUnlockCountdownTimer); if (privateUnlockSendBtn) { privateUnlockSendBtn.disabled = false; privateUnlockSendBtn.textContent = '重新发送'; } }
   }, 1000);
 }
+privateUnlockScopeRow?.addEventListener('change', updatePrivateUnlockModeNote);
+privateUnlockDurationRow?.addEventListener('click', event => {
+  const button = event.target.closest('.private-duration-btn');
+  if (!button || button.disabled) return;
+  privateUnlockDurationRow.querySelectorAll('.private-duration-btn').forEach(item => item.classList.toggle('active', item === button));
+  updatePrivateUnlockModeNote();
+});
+privateCustomHours?.addEventListener('input', () => {
+  let value = privateCustomHours.value.replace(/[^0-9.]/g, '');
+  const dot = value.indexOf('.');
+  if (dot >= 0) value = `${value.slice(0, dot + 1)}${value.slice(dot + 1).replace(/\./g, '').slice(0, 1)}`;
+  const parts = value.split('.');
+  value = parts[0].slice(0, 3) + (parts.length > 1 ? `.${parts[1]}` : '');
+  if (privateCustomHours.value !== value) privateCustomHours.value = value;
+  updatePrivateUnlockModeNote();
+});
 
 privateUnlockSendBtn?.addEventListener('click', async () => {
+  const selection = readPrivateUnlockSelection();
+  if (!selection) {
+    if (privateUnlockHint) { privateUnlockHint.textContent = '请选择有效范围和时长（自定义时长为 0.1 至 168 小时，最多一位小数）'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); }
+    return;
+  }
   try {
     privateUnlockSendBtn.disabled = true;
     if (privateUnlockHint) { privateUnlockHint.classList.add('hidden'); privateUnlockHint.classList.remove('is-error'); }
-    const r = await authFetch('/api/auth/email/private-unlock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'private' }) });
-    const d = await r.json();
-    if (!r.ok) { if (privateUnlockHint) { privateUnlockHint.textContent = d.code === 'MAIL_UNAVAILABLE' ? '邮件服务暂不可用' : d.code === 'AUTH_RATE_LIMIT' ? '发送过于频繁，请稍后再试' : '发送失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); } privateUnlockSendBtn.disabled = false; return; }
-    privateUnlockChallenge = d.challenge;
-    if (privateUnlockDesc) privateUnlockDesc.textContent = `验证码已发送至 ${d.emailHint || '绑定邮箱'}，5 分钟内有效`;
-    if (privateUnlockHint) { privateUnlockHint.classList.add('hidden'); }
+    const response = await authFetch('/api/auth/email/private-unlock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'private', ...selection }) });
+    const data = await response.json();
+    if (!response.ok) {
+      if (privateUnlockHint) { privateUnlockHint.textContent = data.code === 'MAIL_UNAVAILABLE' ? '邮件服务暂不可用' : data.code === 'AUTH_RATE_LIMIT' ? '发送过于频繁，请稍后再试' : data.code === 'INVALID_PRIVATE_UNLOCK' ? '范围或时长无效' : '发送失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); }
+      privateUnlockSendBtn.disabled = false;
+      return;
+    }
+    privateUnlockChallenge = data.challenge;
+    privateUnlockSelection = selection;
+    setPrivateUnlockOptionsDisabled(true);
+    if (privateUnlockDesc) privateUnlockDesc.textContent = `验证码已发送至 ${data.emailHint || '绑定邮箱'}，5 分钟内有效`;
     startPrivateUnlockCountdown();
     privateUnlockCodeInput?.focus();
-  } catch { if (privateUnlockHint) { privateUnlockHint.textContent = '发送失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); } if (privateUnlockSendBtn) privateUnlockSendBtn.disabled = false; }
+  } catch {
+    if (privateUnlockHint) { privateUnlockHint.textContent = '发送失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); }
+    if (privateUnlockSendBtn) privateUnlockSendBtn.disabled = false;
+  }
 });
 
 privateUnlockCodeInput?.addEventListener('input', () => {
-  const val = privateUnlockCodeInput.value.replace(/\D/g, '').slice(0, 6);
-  if (privateUnlockCodeInput.value !== val) privateUnlockCodeInput.value = val;
+  const value = privateUnlockCodeInput.value.replace(/\D/g, '').slice(0, 6);
+  if (privateUnlockCodeInput.value !== value) privateUnlockCodeInput.value = value;
   if (privateUnlockConfirm) {
-    privateUnlockConfirm.disabled = !(privateUnlockChallenge && val.length === 6);
-    privateUnlockConfirm.classList.toggle('hidden', val.length < 6);
+    privateUnlockConfirm.disabled = !(privateUnlockChallenge && value.length === 6);
+    privateUnlockConfirm.classList.toggle('hidden', value.length < 6);
   }
-  // 6位自动提交
-  if (privateUnlockChallenge && val.length === 6) {
-    setTimeout(() => privateUnlockConfirm?.click(), 80);
-  }
+  if (privateUnlockChallenge && value.length === 6) setTimeout(() => privateUnlockConfirm?.click(), 80);
 });
 
 privateUnlockConfirm?.addEventListener('click', async () => {
-  if (!privateUnlockChallenge) return;
+  if (!privateUnlockChallenge || !privateUnlockSelection) return;
   const code = privateUnlockCodeInput?.value.trim();
   if (!code || code.length !== 6) return;
+  const selection = privateUnlockSelection;
+  if (selection.duration === 'permanent') {
+    const scopeLabel = selection.scope === 'current' ? '当前卡片' : '当前用户全部现有 private 卡片';
+    if (!window.confirm(`永久解锁将移除${scopeLabel}的 private 标记，刷新后也不会重新加锁。继续吗？`)) { privateUnlockConfirm.disabled = false; return; }
+  }
   try {
     privateUnlockConfirm.disabled = true;
-    const r = await authFetch('/api/messages/private/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge: privateUnlockChallenge, code }) });
-    const d = await r.json();
-    if (!r.ok) {
-      if (privateUnlockHint) { privateUnlockHint.textContent = d.code === 'AUTH_FAILED' ? '验证码错误或已过期' : d.code === 'CODE_REQUIRED' ? '请先发送验证码' : '验证失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); }
+    const response = await authFetch('/api/messages/private/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge: privateUnlockChallenge, code, ...selection }) });
+    const data = await response.json();
+    if (!response.ok) {
+      if (privateUnlockHint) { privateUnlockHint.textContent = data.code === 'AUTH_FAILED' ? '验证码错误或已过期' : data.code === 'CODE_REQUIRED' ? '请先发送验证码' : data.code === 'INVALID_PRIVATE_UNLOCK' ? '范围或时长无效' : '验证失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); }
       privateUnlockConfirm.disabled = false;
       privateUnlockConfirm.classList.remove('hidden');
       return;
     }
-    // 会话级解锁——按选定时长重渲所有卡片
-    applyPrivateUnlock(selectedUnlockDuration);
+    if (data.permanent) {
+      const updated = new Set(data.updatedIds || []);
+      const unmark = message => updated.has(message.id) ? { ...message, private: false } : message;
+      messages = messages.map(unmark); favorites = favorites.map(unmark);
+      if (Array.isArray(searchState.results)) searchState.results = searchState.results.map(unmark);
+      for (const id of updated) privateCardUnlockExpiresAt.delete(id);
+      showToast(`已永久解除 ${updated.size} 张卡片的 private 标记`);
+    } else {
+      if (!applyPrivateUnlock(data.scope, data.messageId, data.expiresAt)) { showToast('解锁授权已过期，请重试'); return; }
+      const durationLabel = selection.duration === '600' ? '10 分钟' : selection.duration === '1800' ? '30 分钟' : `${selection.hours} 小时`;
+      showToast(`${selection.scope === 'current' ? '当前卡片' : '全部 private 卡片'}已解锁 ${durationLabel}`);
+    }
     closePrivateUnlockModal();
     renderMessages();
     if (currentTab === 'favorites') renderFavorites();
-    const durationLabel = selectedUnlockDuration > 0 ? `${selectedUnlockDuration / 60} 分钟后自动重锁` : selectedUnlockDuration === -1 ? '已永久解锁' : '已解锁本次会话';
-    showToast(durationLabel);
-  } catch { if (privateUnlockHint) { privateUnlockHint.textContent = '操作失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); } if (privateUnlockConfirm) privateUnlockConfirm.disabled = false; }
+    if (searchState.active) renderSearchResults();
+  } catch {
+    if (privateUnlockHint) { privateUnlockHint.textContent = '操作失败，请重试'; privateUnlockHint.classList.remove('hidden'); privateUnlockHint.classList.add('is-error'); }
+    if (privateUnlockConfirm) privateUnlockConfirm.disabled = false;
+  }
 });
 
 privateUnlockClose?.addEventListener('click', closePrivateUnlockModal);
