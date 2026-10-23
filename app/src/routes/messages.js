@@ -6,6 +6,7 @@ const { deleteMessageFiles, withUploadOperation, commitUploadMutation } = requir
 const { toPublicMessage, persistImageContent, persistFileContent } = require('../message');
 const { createMessageId, MAX_SEARCH_QUERY_LEN, readCookie } = require('../utils');
 const { deleteSharesByMessageId } = require('../share');
+const { privateUnlockTarget } = require('../private-unlock');
 
 const { trackRouter } = require('../lifecycle');
 const router = trackRouter(express.Router());
@@ -388,23 +389,51 @@ router.post('/:id/private/toggle', requireAuth, async (req, res) => {
   } catch (error) { return res.status(error.status || 500).json({ code: error.code || 'INTERNAL_ERROR' }); }
 });
 
-// 会话解锁验证——消费邮箱验证码，不改 DB，只是证明身份
+// 验证后按所选范围与时长解锁；永久解锁会持久移除对应 private 标记。
 router.post('/private/verify', requireAuth, async (req, res) => {
   res.set('Cache-Control', 'no-store');
   try {
     const authService = req.app.get('authService');
-    if (!authService) return res.status(503).json({ code: 'AUTH_UNAVAILABLE' });
+    if (!authService?.emailVerification) return res.status(503).json({ code: 'AUTH_UNAVAILABLE' });
     const userId = req.userId;
     const { challenge, code } = req.body || {};
     if (!challenge || !code) return res.status(400).json({ code: 'CODE_REQUIRED' });
+    const target = privateUnlockTarget(req.body);
+    const current = authService.authenticateRequest(req);
     authService.emailVerification.consume(challenge, code, {
       userId,
       purpose: 'reauth',
-      sessionId: authService.authenticateRequest(req).session.id,
-      target: { action: 'private' }
+      sessionId: current.session.id,
+      target
     }, () => true);
-    return res.json({ success: true });
-  } catch (error) { return res.status(error.status || 500).json({ code: error.code || 'INTERNAL_ERROR' }); }
+
+    if (target.seconds === -1) {
+      let updatedIds = [];
+      await commitUserMutation(userId, candidate => {
+        const selected = candidate.messages.filter(message => message.private === true &&
+          (target.scope === 'all' || message.id === target.messageId));
+        if (target.scope === 'current' && selected.length === 0) throw Object.assign(new Error('message not found'), { status: 404, code: 'MESSAGE_NOT_FOUND' });
+        for (const message of selected) delete message.private;
+        updatedIds = selected.map(message => message.id);
+      });
+      const committed = getUserState(userId).messages;
+      for (const id of updatedIds) {
+        const message = committed.find(item => item.id === id);
+        if (message) req.app.get('io').broadcastPrivate(userId, toPublicMessage(message, userId));
+      }
+      return res.json({ success: true, permanent: true, scope: target.scope, updatedIds });
+    }
+
+    return res.json({
+      success: true,
+      permanent: false,
+      scope: target.scope,
+      messageId: target.messageId,
+      expiresAt: Date.now() + target.seconds * 1000
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({ code: error.code || 'INTERNAL_ERROR' });
+  }
 });
 
 module.exports = router;

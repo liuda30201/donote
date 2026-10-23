@@ -218,9 +218,50 @@ let currentTab = 'messages';
 let currentTypeFilter = 'all'; // 'all' | 'text' | 'code' | 'link' | 'image' | 'file'
 let currentCategoryFilter = null; // null = 不筛选, string = 按分类标题筛选
 let searchScope = 'all'; // 'all' | 'note' 搜索范围
-let privateUnlocked = false; // 会话内隐私解锁状态，刷新/登出后重置
-let privateUnlockDuration = 0; // 0=本次会话, -1=永久解锁(不重锁), >0=秒数后重锁
-let privateRelockTimer = null; // 自动重锁计时器
+let privateGlobalUnlockExpiresAt = 0;
+const privateCardUnlockExpiresAt = new Map();
+let privateRelockTimer = null; // 最近一次隐私解锁到期计时器
+function prunePrivateUnlocks() {
+  const now = Date.now(); let expired = false;
+  if (privateGlobalUnlockExpiresAt && privateGlobalUnlockExpiresAt <= now) { privateGlobalUnlockExpiresAt = 0; expired = true; }
+  for (const [id, expiresAt] of privateCardUnlockExpiresAt) if (expiresAt <= now) { privateCardUnlockExpiresAt.delete(id); expired = true; }
+  return expired;
+}
+function isPrivateCardUnlocked(messageId) {
+  prunePrivateUnlocks();
+  return privateGlobalUnlockExpiresAt > Date.now() || (privateCardUnlockExpiresAt.get(messageId) || 0) > Date.now();
+}
+function schedulePrivateRelock() {
+  if (privateRelockTimer) clearTimeout(privateRelockTimer);
+  const deadlines = [...privateCardUnlockExpiresAt.values()];
+  if (privateGlobalUnlockExpiresAt) deadlines.push(privateGlobalUnlockExpiresAt);
+  if (!deadlines.length) { privateRelockTimer = null; return; }
+  privateRelockTimer = setTimeout(() => {
+    const expired = prunePrivateUnlocks();
+    privateRelockTimer = null;
+    if (expired) {
+      renderMessages();
+      if (currentTab === 'favorites') renderFavorites();
+      if (searchState.active) renderSearchResults();
+      showToast('隐私解锁已到期，卡片已重新加锁');
+    }
+    schedulePrivateRelock();
+  }, Math.max(0, Math.min(...deadlines) - Date.now()));
+}
+function applyPrivateUnlock(scope, messageId, expiresAt) {
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) return false;
+  if (scope === 'all') privateGlobalUnlockExpiresAt = expiresAt;
+  else if (scope === 'current' && typeof messageId === 'string') privateCardUnlockExpiresAt.set(messageId, expiresAt);
+  else return false;
+  schedulePrivateRelock();
+  return true;
+}
+function clearPrivateUnlockState() {
+  privateGlobalUnlockExpiresAt = 0;
+  privateCardUnlockExpiresAt.clear();
+  if (privateRelockTimer) clearTimeout(privateRelockTimer);
+  privateRelockTimer = null;
+}
 const filterChips = document.querySelectorAll('.filter-chip');
 let userId = null; // 多用户模式下的用户 ID
 let currentMode = 'pending'; // 服务端确认前禁止凭据请求
@@ -1891,6 +1932,7 @@ function createMessageElement(msg, isFavoritesView = false) {
     `;
 
     primaryHeaderAction = async () => {
+      if (msg.private && !isPrivateCardUnlocked(msg.id)) { openPrivateUnlockModal(msg.id); return; }
       await copyTextToClipboard(msg.content);
       flashButtonCopied(copyBtn, copyBtn.innerHTML);
       headerEl.classList.add('header-copied-flash');
@@ -2062,7 +2104,7 @@ function createMessageElement(msg, isFavoritesView = false) {
   privateBtn.type = 'button';
   privateBtn.className = 'card-icon-btn card-secondary-action card-private-action';
   if (msg.private) privateBtn.classList.add('active');
-  privateBtn.title = msg.private ? '解除隐私保护' : '设为隐私';
+  privateBtn.title = msg.private ? (isPrivateCardUnlocked(msg.id) ? '调整此卡片隐私解锁' : '解锁此卡片') : '设为隐私';
   privateBtn.setAttribute('aria-label', privateBtn.title);
   privateBtn.innerHTML = `
     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -2086,10 +2128,13 @@ function createMessageElement(msg, isFavoritesView = false) {
   actionsEl.appendChild(privateBtn);
 
   // 隐私状态遮罩（锁定且会话未解锁时才叠遮罩）
-  if (msg.private && !privateUnlocked) {
+  if (msg.private && !isPrivateCardUnlocked(msg.id)) {
     messageEl.classList.add('is-private');
-    const lockOverlay = document.createElement('div');
+    const lockOverlay = document.createElement('button');
+    lockOverlay.type = 'button';
     lockOverlay.className = 'private-lock-overlay';
+    lockOverlay.setAttribute('aria-label', '解锁此隐私卡片');
+    lockOverlay.title = '解锁此隐私卡片';
     lockOverlay.innerHTML = `
       <div class="private-lock-badge">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -2100,7 +2145,7 @@ function createMessageElement(msg, isFavoritesView = false) {
     `;
     lockOverlay.addEventListener('click', (e) => {
       e.stopPropagation();
-      openPrivateUnlockModal();
+      openPrivateUnlockModal(msg.id);
     });
     messageEl.appendChild(lockOverlay);
   }
@@ -2977,8 +3022,8 @@ async function logout(showMessage = true, revokeSession = true, fromOtherTab = f
   isAuthenticated = false;
   messages = [];
   favorites = [];
-  privateUnlocked = false;
-  privateUnlockDuration = 0;
+  privateGlobalUnlockExpiresAt = 0;
+  privateCardUnlockExpiresAt.clear();
   if (privateRelockTimer) { clearTimeout(privateRelockTimer); privateRelockTimer = null; }
   updateFavoritesBadge();
   hasMoreMessages = false;

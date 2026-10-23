@@ -1,5 +1,7 @@
 'use strict';
 
+const MAX_PRIVATE_UNLOCK_HOURS = 168;
+
 // Canonical target shared by email issuance and consumption; never trust client deadlines.
 function privateUnlockTarget(body = {}) {
   const { scope, messageId, duration, hours } = body;
@@ -7,8 +9,8 @@ function privateUnlockTarget(body = {}) {
   let seconds;
   if (duration === 'permanent') seconds = -1;
   else if (duration === '600' || duration === '1800') seconds = Number(duration);
-  else if (duration === 'custom' && typeof hours === 'string' && /^\d{1,3}(?:\.\d)?$/.test(hours) && Number(hours) > 0 && Number(hours) <= 168) seconds = Math.round(Number(hours) * 3600);
+  else if (duration === 'custom' && typeof hours === 'string' && /^\d{1,3}(?:\.\d)?$/.test(hours) && Number(hours) > 0 && Number(hours) <= MAX_PRIVATE_UNLOCK_HOURS) seconds = Math.round(Number(hours) * 3600);
   else throw Object.assign(new Error('Invalid private unlock duration'), { status: 400, code: 'INVALID_PRIVATE_UNLOCK' });
   return { action: 'private', scope, messageId: scope === 'current' ? messageId : null, seconds };
 }
-module.exports = { privateUnlockTarget };
+module.exports = { MAX_PRIVATE_UNLOCK_HOURS, privateUnlockTarget };

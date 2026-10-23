@@ -611,6 +611,61 @@ a:focus-visible,
   cursor: pointer;
 }
 
+/* 仅为新建剪贴内容的「敏感」选项使用开关，登录与账户表单保留原生复选框。 */
+#composer-area .checkbox-label {
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+#composer-area .checkbox-label input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 18px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--bg-subtle);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+#composer-area .checkbox-label input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform var(--transition-fast), background-color var(--transition-fast);
+}
+
+#composer-area .checkbox-label input[type="checkbox"]:checked {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+#composer-area .checkbox-label input[type="checkbox"]:checked::before {
+  transform: translateX(14px);
+  background: var(--accent);
+}
+
+#composer-area .checkbox-label input[type="checkbox"]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .login-duration-select {
   height: 30px;
   padding: 0 26px 0 var(--space-2);
@@ -2983,9 +3038,6 @@ a:focus-visible,
   color: var(--text-secondary);
   border-color: var(--border-strong);
 }
-  opacity: 0.85;
-  color: var(--text-secondary);
-}
 
 .card-remark-entry-dot {
   width: 6px;
@@ -3447,10 +3499,23 @@ a:focus-visible,
   animation: fadeIn var(--transition-fast);
 }
 
+/* 常规弹窗统一虚化背景；沉浸式查看器与隐私解锁弹窗保留各自的专用遮罩。 */
+.modal:not(#text-viewer):not(#image-viewer):not(#file-viewer):not(#private-unlock-modal) {
+  backdrop-filter: saturate(150%) blur(8px);
+  -webkit-backdrop-filter: saturate(150%) blur(8px);
+}
+
 #text-viewer.modal,
 #image-viewer.modal,
 #file-viewer.modal {
   background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#private-unlock-modal.modal {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .modal-content {
@@ -3755,8 +3820,44 @@ a:focus-visible,
 .verification-code-row .btn { flex-shrink: 0; font-size: 0.78rem; }
 #verification-new-email { margin-top: 14px; padding-top: 4px; border-top: 1px solid var(--border-strong); }
 #verification-confirm-email, #security-reauth-btn { margin-top: 10px; }
-#security-sessions .popover-meta-item { gap: 8px; margin: 8px 0; }
-#security-history .popover-meta-item { overflow-wrap: anywhere; }
+#security-sessions .popover-meta-item,
+#security-history .popover-meta-item,
+#admin-users .popover-meta-item {
+  min-height: 48px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  gap: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+#security-sessions .popover-meta-item:hover,
+#security-history .popover-meta-item:hover,
+#admin-users .popover-meta-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+#security-sessions .popover-meta-item .btn,
+#admin-users .popover-meta-item .btn {
+  min-height: 32px;
+  flex-shrink: 0;
+}
+
+#admin-users .popover-meta-item {
+  flex-wrap: wrap;
+}
+
+#security-history .popover-meta-item {
+  align-items: flex-start;
+  line-height: 1.45;
+}
+
+#security-sessions .popover-meta-item { gap: 8px; }
 #enrollment-qr, #security-factor-qr { display: block; max-width: 100%; height: auto; margin: 12px auto; }
 #enrollment-secret { overflow-wrap: anywhere; }
 #enrollment-codes { font-size: 0.8rem; overflow-x: auto; margin: 12px 0; }
@@ -4267,6 +4368,52 @@ a:focus-visible,
   background: rgba(0, 0, 0, 0.34);
 }
 
+/* 黄色文本预览使用深琥珀色前景，避免默认白字落在亮黄色标题栏上。 */
+.paste-modal-card.variant-text {
+  --text-modal-foreground: #3f2a00;
+  --text-modal-muted: rgba(63, 42, 0, 0.82);
+  --text-modal-control-bg: rgba(63, 42, 0, 0.1);
+  --text-modal-control-border: rgba(63, 42, 0, 0.22);
+}
+
+.paste-modal-card.variant-text .paste-modal-header {
+  color: var(--text-modal-foreground);
+  border-bottom-color: var(--text-modal-control-border);
+}
+
+.paste-modal-card.variant-text .paste-modal-type-icon,
+.paste-modal-card.variant-text .text-viewer-title {
+  color: var(--text-modal-foreground);
+}
+
+.paste-modal-card.variant-text .paste-modal-type-icon {
+  background: var(--text-modal-control-bg);
+  border-color: var(--text-modal-control-border);
+}
+
+.paste-modal-card.variant-text .text-viewer-meta {
+  color: var(--text-modal-muted);
+  background: var(--text-modal-control-bg);
+}
+
+.paste-modal-card.variant-text .paste-modal-action-btn {
+  color: var(--text-modal-foreground);
+  border-color: var(--text-modal-control-border);
+  background: var(--text-modal-control-bg);
+}
+
+.paste-modal-card.variant-text .paste-modal-action-btn:hover {
+  background: rgba(63, 42, 0, 0.16);
+}
+
+.paste-modal-card.variant-text .paste-modal-action-btn.primary {
+  background: rgba(63, 42, 0, 0.14);
+}
+
+.paste-modal-card.variant-text .paste-modal-action-btn.primary:hover {
+  background: rgba(63, 42, 0, 0.2);
+}
+
 .text-viewer-body,
 .file-viewer-body {
   padding: 22px 24px;
@@ -4627,27 +4774,7 @@ a:focus-visible,
     top: 0;
   }
 
-  .paste-card-labels {
-    gap: 6px;
-    align-items: center;
-  }
-
-  .paste-card-type-label {
-    max-width: calc(100% - 3.8em);
-    font-size: 0.9rem;
-  }
-
-  .paste-card-header-time {
-    font-size: 0.76rem;
-  }
-
-  .message.paste-card.variant-text .paste-card-type-label,
-  .message.paste-card.variant-text .paste-card-header-time {
-    color: var(--text-secondary);
-    text-shadow: none;
-  }
-
-  /* 标签定位覆盖移动端内容层时，贴齐左侧并在卡片顶部色带高度内居中 */
+  /* 移动端标签区统一定位和布局，避免重复规则相互覆盖。 */
   .paste-card-labels {
     position: absolute;
     top: 6px;
@@ -4658,11 +4785,13 @@ a:focus-visible,
     display: flex;
     flex-direction: row;
     align-items: center;
+    gap: 6px;
     background: transparent;
     pointer-events: none;
   }
 
   .paste-card-type-label {
+    max-width: calc(100% - 3.8em);
     font-size: 0.9rem;
     font-weight: 750;
     line-height: 1;

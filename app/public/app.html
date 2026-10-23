@@ -198,6 +198,7 @@
             </button>
           </div>
 
+          <button id="private-unlock-global-btn" class="btn btn-secondary topbar-private-unlock" type="button" title="设置全部隐私卡片的解锁范围与时长">隐私解锁</button>
           <div class="connection-pill" id="connection-pill" title="实时同步状态">
             <span class="connection-dot connected" id="connection-dot" aria-hidden="true"></span>
             <span id="connection-status" class="status connected">已连接</span>
@@ -990,20 +991,31 @@
         </svg>
       </div>
       <h3 id="private-unlock-title" class="private-unlock-title">隐私验证</h3>
-      <p class="private-unlock-subtitle" id="private-unlock-desc">发送验证码到绑定邮箱以验证身份</p>
+      <p class="private-unlock-subtitle" id="private-unlock-desc">验证后解除所选范围的卡片遮罩</p>
 
-      <!-- 解锁时长选择 -->
-      <div class="private-unlock-duration-row" id="private-unlock-duration-row">
-        <button type="button" class="private-duration-btn" data-duration="600">10 分钟</button>
+      <fieldset class="private-unlock-scope-row" id="private-unlock-scope-row">
+        <legend>解锁范围</legend>
+        <label><input type="radio" name="private-unlock-scope" value="current" checked> 当前卡片</label>
+        <label><input type="radio" name="private-unlock-scope" value="all"> 全部 private 卡片</label>
+      </fieldset>
+
+      <div class="private-unlock-duration-row" id="private-unlock-duration-row" role="group" aria-label="解锁时长">
+        <button type="button" class="private-duration-btn active" data-duration="600">10 分钟</button>
         <button type="button" class="private-duration-btn" data-duration="1800">30 分钟</button>
-        <button type="button" class="private-duration-btn active" data-duration="0">本次会话</button>
-        <button type="button" class="private-duration-btn" data-duration="-1">永久解锁</button>
+        <button type="button" class="private-duration-btn" data-duration="custom">自定义</button>
+        <button type="button" class="private-duration-btn" data-duration="permanent">永久</button>
       </div>
+      <div id="private-custom-duration" class="private-custom-duration hidden">
+        <label for="private-custom-hours">自定义时长（小时）</label>
+        <input id="private-custom-hours" type="text" inputmode="decimal" autocomplete="off" maxlength="5" placeholder="例如 1.5" aria-describedby="private-duration-help">
+        <p id="private-duration-help">0.1 至 168 小时，最多一位小数</p>
+      </div>
+      <p id="private-unlock-mode-note" class="private-unlock-mode-note" role="status">验证后仅显示当前卡片，10 分钟后重新加锁。</p>
 
       <button id="private-unlock-send-btn" class="private-unlock-send-btn" type="button">发送验证码</button>
       <input id="private-unlock-code-input" class="private-unlock-input" type="text" inputmode="numeric"
-        autocomplete="one-time-code" maxlength="6" placeholder="_ _ _ _ _ _" />
-      <p class="private-unlock-hint hidden" id="private-unlock-hint"></p>
+        autocomplete="one-time-code" maxlength="6" placeholder="_ _ _ _ _ _" aria-label="邮箱验证码" />
+      <p class="private-unlock-hint hidden" id="private-unlock-hint" role="alert"></p>
       <button id="private-unlock-confirm" class="btn btn-primary private-unlock-confirm-btn hidden" type="button">解锁</button>
       <button id="private-unlock-cancel" class="private-unlock-cancel-link" type="button">取消</button>
       <button id="private-unlock-close" class="private-unlock-close-x" type="button" aria-label="关闭">
