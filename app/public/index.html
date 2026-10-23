@@ -29,6 +29,7 @@
         <a href="#search">搜索</a>
         <a href="#devices">跨设备</a>
         <a href="#privacy">隐私</a>
+        <a href="#faq">问答</a>
       </nav>
       <a class="nav-cta" href="/login">登录工作台</a>
     </div>
@@ -40,14 +41,14 @@
     <section class="hero">
       <div class="hero-inner">
         <h1>复制过的内容，<br>在这里继续</h1>
-        <p class="hero-sub">粘贴文字、代码、链接、截图和文件，搜索找回，换设备接着用</p>
+        <p class="hero-sub">粘贴文字、代码、链接与截图，秒级搜索找回，换台设备打开浏览器接着用</p>
         <div class="hero-btns">
-          <a class="btn btn-primary" href="/login">登录</a>
+          <a class="btn btn-primary" href="/login">进入工作台</a>
           <a class="btn btn-ghost" href="#collect">了解功能 ↓</a>
         </div>
         <p class="hero-note">
           <span class="live-dot" aria-hidden="true"></span>
-          浏览器打开即用
+          浏览器打开即用 · 免安装客户端 · 账号独立隔离
         </p>
       </div>
       <div class="hero-shot">
@@ -82,7 +83,7 @@
       <div class="feat-copy">
         <p class="feat-num" aria-hidden="true">01</p>
         <h2 id="feat1-title">不用再把东西发给自己</h2>
-        <p>粘贴或上传文件，临时内容先收进来，等准备好再继续</p>
+        <p>告别聊天软件「文件传输助手」，直接粘贴文本、代码片段与截图，实时同步到工作台，随时接着处理</p>
       </div>
       <div class="feat-media">
         <picture>
@@ -102,7 +103,7 @@
       <div class="feat-copy">
         <p class="feat-num" aria-hidden="true">02</p>
         <h2 id="feat2-title">记得一个词，就能找到它</h2>
-        <p>搜索内容、文件名或备注，用类型筛选缩小范围。收藏常用条目，下次更快找到</p>
+        <p>搜索正文、文件名或备注，按类型筛选快速缩小范围。点击星标收藏重要条目，长期保留不过期</p>
       </div>
       <div class="feat-media">
         <picture>
@@ -122,7 +123,7 @@
       <div class="feat-copy">
         <p class="feat-num" aria-hidden="true">03</p>
         <h2 id="feat3-title">换一个设备，<br>不用重新开始</h2>
-        <p>登录同一账户，继续查看、复制、预览或下载。工作台跟着账户走</p>
+        <p>桌面与手机浏览器登录同一账户，实时查看、复制、预览或下载，支持深浅色模式与离线缓存</p>
       </div>
       <div class="feat-media">
         <picture>
@@ -143,28 +144,28 @@
         <div class="privacy-copy">
           <p class="feat-num" aria-hidden="true">04</p>
           <h2 id="privacy-title">放进去的东西，只有你能看到</h2>
-          <p>账户密码访问，内容相互独立，文件下载需要认证</p>
+          <p>账户认证访问、数据相互独立，附件流式鉴权读取，支持敏感文本加锁与两步验证</p>
           <a class="btn btn-primary" href="/login">登录工作台</a>
         </div>
         <ul class="privacy-cards" role="list">
           <li>
             <strong>主动收集</strong>
-            <p>主动粘贴或上传的内容才会进入工作台</p>
+            <p>仅保存主动粘贴或上传的内容，绝不后台静默读取系统剪贴板</p>
           </li>
           <li>
             <strong>账户隔离</strong>
-            <p>内容属于登录账户，未认证无法访问</p>
+            <p>账户数据与配额相互独立，附件需经认证流接口访问，阻断未授权直链</p>
           </li>
           <li>
             <strong>真实边界</strong>
-            <p>私有工作台，不宣称端到端加密或无限存储</p>
+            <p>支持敏感内容遮罩与 TOTP 验证；私有工作台，不虚构端到端加密或无限存储</p>
           </li>
         </ul>
       </div>
     </section>
 
     <!-- ── faq ── -->
-    <section class="faq-sect" aria-labelledby="faq-title">
+    <section class="faq-sect" id="faq" aria-labelledby="faq-title">
       <div class="faq-inner">
         <div class="faq-lead">
           <h2 id="faq-title">你可能想问</h2>
@@ -172,19 +173,19 @@
         <dl class="faq-list">
           <div>
             <dt><button type="button" aria-expanded="false">需要安装客户端吗？<span aria-hidden="true">+</span></button></dt>
-            <dd hidden>不需要。浏览器打开即可使用</dd>
+            <dd hidden>不需要。桌面与手机浏览器打开即用，也支持「添加到主屏幕」以独立窗口运行</dd>
           </div>
           <div>
             <dt><button type="button" aria-expanded="false">会自动保存所有复制过的内容吗？<span aria-hidden="true">+</span></button></dt>
-            <dd hidden>不会。需要手动粘贴或上传内容</dd>
+            <dd hidden>不会。仅当你在工作台内手动粘贴或上传时才会保存，保护剪贴板隐私</dd>
           </div>
           <div>
             <dt><button type="button" aria-expanded="false">内容会一直保存吗？<span aria-hidden="true">+</span></button></dt>
-            <dd hidden>普通内容定期清理，收藏内容不会过期</dd>
+            <dd hidden>普通临时内容按周期自动清理释放空间；点击星标「收藏」的内容长期保留不会过期</dd>
           </div>
           <div>
-            <dt><button type="button" aria-expanded="false">没有账户，可以直接注册吗？<span aria-hidden="true">+</span></button></dt>
-            <dd hidden>使用已有账户登录，暂未开放注册</dd>
+            <dt><button type="button" aria-expanded="false">如何获取账户并开始使用？<span aria-hidden="true">+</span></button></dt>
+            <dd hidden>支持邮箱验证码自主注册登录（多账户模式），或使用管理员配置的访问密码直接进入</dd>
           </div>
         </dl>
       </div>
@@ -193,7 +194,8 @@
     <!-- ── closing ── -->
     <section class="closing" aria-labelledby="closing-title">
       <h2 id="closing-title">让下一次继续，<br>有地方可去。</h2>
-      <a class="btn btn-primary btn-lg" href="/login">登录 DoNote</a>
+      <p class="closing-sub">打开浏览器即可跨设备同步文字、代码与截图</p>
+      <a class="btn btn-primary btn-lg" href="/login">立即进入 DoNote</a>
     </section>
 
   </main>

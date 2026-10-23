@@ -8,9 +8,11 @@ const vm = require('node:vm');
 
 const appHtmlPath = path.join(__dirname, '..', 'public', 'app.html');
 const appJsPath = path.join(__dirname, '..', 'public', 'app.js');
+const styleCssPath = path.join(__dirname, '..', 'public', 'style.css');
 
 const appHtml = fs.readFileSync(appHtmlPath, 'utf8');
 const appJs = fs.readFileSync(appJsPath, 'utf8');
+const styleCss = fs.readFileSync(styleCssPath, 'utf8');
 
 test('app.html 包含工作台全量弹窗关闭控件与备注自动补全容器', () => {
   const requiredIds = [
@@ -132,6 +134,13 @@ test('顶部搜索框已合并为统一全局搜索（移除全部/备注切换�
   assert.match(appHtml, /id="private-custom-step-down"/, 'app.html 应包含减少时长步进按钮 #private-custom-step-down');
   assert.match(appHtml, /id="private-custom-step-up"/, 'app.html 应包含增加时长步进按钮 #private-custom-step-up');
   assert.match(appJs, /function setCustomHoursValue\(/, 'app.js 应包含自定义时长步进与预设同步函数 setCustomHoursValue');
+
+  // 4. 搜索框隐藏浏览器原生 ::-webkit-search-cancel-button，避免与 #toolbar-clear 叠加出现 2 个关闭按钮
+  assert.match(
+    styleCss,
+    /\.topbar-search::-webkit-search-cancel-button[\s\S]*?display:\s*none/,
+    'style.css 应隐藏 .topbar-search 的原生 ::-webkit-search-cancel-button 清除按钮'
+  );
 });
 
 
