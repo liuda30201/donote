@@ -1717,6 +1717,61 @@ a:focus-visible,
   flex-shrink: 0;
 }
 
+/* 预览弹窗底部独立备注栏（分类、分组、备注三要素分离） */
+.viewer-remark-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.viewer-remark-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.viewer-remark-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  line-height: 1.45;
+  word-break: break-word;
+  max-height: 56px;
+  overflow-y: auto;
+}
+
+.viewer-remark-text.is-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.viewer-remark-edit-btn {
+  flex-shrink: 0;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.viewer-remark-edit-btn:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 /* 桌面端 dock 两侧快捷键淡提示：左 Ctrl+C / 右 Ctrl+V */
 .dock-side-hint {
   position: fixed;

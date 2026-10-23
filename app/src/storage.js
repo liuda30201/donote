@@ -54,7 +54,7 @@ function getUserState(userId) {
   }
 
   if (!userStates.has(userId)) {
-    userStates.set(userId, { messages: [], lastActivity: Date.now() });
+    userStates.set(userId, { messages: [], groups: [], lastActivity: Date.now() });
   }
   return userStates.get(userId);
 }
@@ -111,7 +111,9 @@ function commitUserMutation(userId, mutate, options = {}) {
     const result = await mutate(candidate);
     candidate.lastActivity = Date.now();
     await persistCandidateLocked(userId, candidate);
-    state.messages = candidate.messages; state.lastActivity = candidate.lastActivity;
+    state.messages = candidate.messages;
+    state.groups = Array.isArray(candidate.groups) ? candidate.groups : [];
+    state.lastActivity = candidate.lastActivity;
     if (typeof options.afterCommit === 'function') await options.afterCommit({ userId, previous, candidate, result });
     return result;
   }, options);
@@ -213,10 +215,12 @@ async function loadPersistedState(userId = null, { validateSensitive, strict = f
     if (strict) throw error;
     if (!MULTI_USER_MODE) {
       singleUserState.messages = [];
+      singleUserState.groups = [];
       singleUserState.lastActivity = Date.now();
     } else {
       const state = getUserState(userId);
       state.messages = [];
+      state.groups = [];
       state.lastActivity = Date.now();
     }
     return { status: 'corrupt', messages: 0, backup: backedUp ? corruptPath : null };
@@ -224,10 +228,12 @@ async function loadPersistedState(userId = null, { validateSensitive, strict = f
 
   if (!MULTI_USER_MODE) {
     singleUserState.messages = normalized.messages;
+    singleUserState.groups = normalized.groups || [];
     singleUserState.lastActivity = normalized.lastActivity;
   } else {
     const state = getUserState(userId);
     state.messages = normalized.messages;
+    state.groups = normalized.groups || [];
     state.lastActivity = normalized.lastActivity;
   }
 

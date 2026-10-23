@@ -514,11 +514,23 @@ function remarkToColor(remark) {
   return { bg: `hsl(${hue}, 55%, 88%)`, text: `hsl(${hue}, 50%, 30%)`, dot: `hsl(${hue}, 55%, 55%)` };
 }
 
-// 统计所有消息里出现的分类标题（去空、去重、按出现次数降序）
+// 统计所有消息里出现的分组名称（去空、去重、按出现次数降序）
 function aggregateCategories(msgs) {
   const counts = new Map();
   for (const m of msgs) {
     const r = typeof m.title === 'string' ? m.title.trim() : '';
+    if (r) counts.set(r, (counts.get(r) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count }));
+}
+
+// 统计所有消息里出现的历史备注说明（去空、去重、按出现次数降序，供备注弹窗自动补全）
+function aggregateRemarks(msgs) {
+  const counts = new Map();
+  for (const m of msgs) {
+    const r = typeof m.remark === 'string' ? m.remark.trim() : '';
     if (r) counts.set(r, (counts.get(r) || 0) + 1);
   }
   return [...counts.entries()]
@@ -973,7 +985,7 @@ async function performSearch({ force = false } = {}) {
     return;
   }
 
-  const key = q;
+  const key = `${searchScope}:${q}`;
   if (!force && key === searchLastKey && searchState.active) return;
   searchLastKey = key;
 
@@ -1712,13 +1724,12 @@ function createMessageElement(msg, isFavoritesView = false) {
   headerLeftEl.appendChild(titleEl);
 
   if (msg.title) {
-    // 有分类标题时：type label 改为彩色分类 chip，时间保留
+    // 分类（文本/代码/链接/图片/文件）始终常驻保留；分组（如 A项目/B项目/自用）作为独立彩色胶囊并排展示，互不冲突
     const { bg, text: textColor, dot } = remarkToColor(msg.title);
-    typeLabelEl.className = 'paste-card-type-label hidden';
     const tag = document.createElement('span');
     tag.className = 'paste-card-category-tag';
     tag.style.cssText = `background:${bg};color:${textColor};flex-shrink:0;`;
-    tag.title = `分类：${msg.title} · 点击筛选`;
+    tag.title = `分组：${msg.title} · 点击筛选`;
     tag.innerHTML = `<span class="paste-card-category-tag-dot" style="background:${dot}"></span>${escapeHTML(msg.title)}`;
     tag.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1916,7 +1927,7 @@ function createMessageElement(msg, isFavoritesView = false) {
         </div>
       </div>
       <div class="paste-link-footer">
-        <div class="paste-link-title">${escapeHTML(msg.remark || pathTitle)}</div>
+        <div class="paste-link-title">${escapeHTML(pathTitle)}</div>
         <div class="paste-link-domain">${escapeHTML(rawUrl.replace(/^https?:\/\/(www\.)?/i, ''))}</div>
       </div>
     `;
@@ -2541,6 +2552,7 @@ function updateSingleMessageRemark(id, remark) {
 
   updateElement(messagesList);
   updateElement(favoritesList);
+  syncActiveViewerRemark(id, cleanRemark);
 }
 
 function updateSingleMessageTitle(id, title) {
@@ -2555,23 +2567,24 @@ function updateSingleMessageTitle(id, title) {
     const msgEl = container.querySelector(`.message[data-id="${CSS.escape(id)}"]`);
     if (!msgEl) return;
 
-    // 更新 header 分类 chip
+    // 更新 header 分组 chip（保留原有的分类名 typeLabelEl，两者并排展示不冲突）
     const labelsEl = msgEl.querySelector('.paste-card-labels');
     if (labelsEl) {
       const existingTag = labelsEl.querySelector('.paste-card-category-tag');
       const typeLabelEl = labelsEl.querySelector('.paste-card-type-label');
       const timeEl = labelsEl.querySelector('.paste-card-header-time');
+      if (typeLabelEl) typeLabelEl.classList.remove('hidden');
       if (cleanTitle) {
         const { bg, text: textColor, dot } = remarkToColor(cleanTitle);
         if (existingTag) {
           existingTag.style.cssText = `background:${bg};color:${textColor};flex-shrink:0;`;
-          existingTag.title = `分类：${cleanTitle} · 点击筛选`;
+          existingTag.title = `分组：${cleanTitle} · 点击筛选`;
           existingTag.innerHTML = `<span class="paste-card-category-tag-dot" style="background:${dot}"></span>${escapeHTML(cleanTitle)}`;
         } else {
           const tag = document.createElement('span');
           tag.className = 'paste-card-category-tag';
           tag.style.cssText = `background:${bg};color:${textColor};flex-shrink:0;`;
-          tag.title = `分类：${cleanTitle} · 点击筛选`;
+          tag.title = `分组：${cleanTitle} · 点击筛选`;
           tag.innerHTML = `<span class="paste-card-category-tag-dot" style="background:${dot}"></span>${escapeHTML(cleanTitle)}`;
           tag.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2582,22 +2595,20 @@ function updateSingleMessageTitle(id, title) {
           if (timeEl) labelsEl.insertBefore(tag, timeEl);
           else labelsEl.appendChild(tag);
         }
-        if (typeLabelEl) typeLabelEl.classList.add('hidden');
       } else {
         if (existingTag) existingTag.remove();
-        if (typeLabelEl) typeLabelEl.classList.remove('hidden');
       }
     }
 
-    // 同步底部分类标题入口按钮
+    // 同步底部分组入口按钮（文案统一为“分组”）
     const titleEntryBtn = msgEl.querySelector('.card-title-entry');
     if (titleEntryBtn) {
       titleEntryBtn.classList.toggle('has-remark', Boolean(cleanTitle));
-      titleEntryBtn.title = cleanTitle ? `分类：${cleanTitle} · 点击修改` : '设置分类标题';
-      titleEntryBtn.setAttribute('aria-label', cleanTitle ? '修改分类标题' : '设置分类标题');
+      titleEntryBtn.title = cleanTitle ? `分组：${cleanTitle} · 点击修改` : '设置分组';
+      titleEntryBtn.setAttribute('aria-label', cleanTitle ? '修改分组' : '设置分组');
       titleEntryBtn.innerHTML = cleanTitle
         ? `<span class="card-remark-entry-dot" style="background:${remarkToColor(cleanTitle).dot}"></span><span class="card-remark-entry-text">${escapeHTML(cleanTitle)}</span>`
-        : '<span class="card-remark-entry-plus">#</span><span>分类</span>';
+        : '<span class="card-remark-entry-plus">#</span><span>分组</span>';
     }
   };
 
@@ -5754,6 +5765,35 @@ function resetImageZoom() {
   updateImageZoomTransform();
 }
 
+function renderViewerRemarkBar(prefix, msg) {
+  const textEl = document.getElementById(`${prefix}-remark-text`);
+  const btnEl = document.getElementById(`${prefix}-remark-btn`);
+  const remark = typeof msg?.remark === 'string' ? msg.remark.trim() : '';
+  if (textEl) {
+    textEl.textContent = remark || '暂无备注说明';
+    textEl.classList.toggle('is-empty', !remark);
+  }
+  if (btnEl) {
+    btnEl.textContent = remark ? '编辑备注' : '+ 添加备注';
+    btnEl.onclick = () => { if (msg) openRemarkModal(msg); };
+  }
+}
+
+function syncActiveViewerRemark(id, remark) {
+  if (currentViewerMessage && currentViewerMessage.id === id) {
+    currentViewerMessage.remark = remark;
+    renderViewerRemarkBar('image-viewer', currentViewerMessage);
+  }
+  if (currentViewerTextMsg && currentViewerTextMsg.id === id) {
+    currentViewerTextMsg.remark = remark;
+    renderViewerRemarkBar('text-viewer', currentViewerTextMsg);
+  }
+  if (currentViewerFileMsg && currentViewerFileMsg.id === id) {
+    currentViewerFileMsg.remark = remark;
+    renderViewerRemarkBar('file-viewer', currentViewerFileMsg);
+  }
+}
+
 function openImageViewer(msg) {
   currentViewerMessage = msg;
   isViewingOriginal = false;
@@ -5761,8 +5801,9 @@ function openImageViewer(msg) {
 
   const imageData = getImageContent(msg.content);
   if (imageViewerTitle) {
-    imageViewerTitle.textContent = msg.remark || '图片';
+    imageViewerTitle.textContent = msg.title ? `图片 · ${msg.title}` : '图片';
   }
+  renderViewerRemarkBar('image-viewer', msg);
 
   // 显示缩略图
   imageViewerImg.src = imageData.thumbnail;
@@ -6045,8 +6086,9 @@ async function openTextViewer(msg) {
     textViewerTypeIcon.innerHTML = spec.iconSvg;
   }
   if (textViewerTitle) {
-    textViewerTitle.textContent = msg.remark || spec.defaultTitle;
+    textViewerTitle.textContent = msg.title ? `${spec.defaultTitle} · ${msg.title}` : spec.defaultTitle;
   }
+  renderViewerRemarkBar('text-viewer', msg);
 
   const content = String(msg.content || '');
   const lines = content.split('\n').length;
@@ -6227,10 +6269,11 @@ async function openFileViewer(msg) {
   currentViewerFileMsg = msg;
   currentViewerFileText = fileData.name || '';
 
-  if (fileViewerTitle) fileViewerTitle.textContent = msg.remark || fileData.name;
+  if (fileViewerTitle) fileViewerTitle.textContent = fileData.name || '文件预览';
   if (fileViewerMeta) {
-    fileViewerMeta.textContent = `${spec.metaText} · ${formatTime(msg.timestamp)}`;
+    fileViewerMeta.textContent = `${ msg.title ? `${msg.title} · ` : '' }${spec.metaText} · ${formatTime(msg.timestamp)}`;
   }
+  renderViewerRemarkBar('file-viewer', msg);
 
   // 如果是非文本类二进制文件（如压缩包、PDF、安装包、大文件等），展示精致的文件详情卡片弹窗
   const fileCopySpan = fileViewerCopyBtn ? fileViewerCopyBtn.querySelector('span') : null;
@@ -6533,10 +6576,10 @@ let remarkAutocompleteIndex = -1;
 
 function getRemarkSuggestions(q) {
   const allMsgs = [...messages, ...favorites];
-  const cats = aggregateCategories(allMsgs);
-  if (!q) return cats.slice(0, 8);
+  const remarks = aggregateRemarks(allMsgs);
+  if (!q) return remarks.slice(0, 8);
   const lower = q.toLowerCase();
-  return cats.filter(c => c.remark.toLowerCase().includes(lower)).slice(0, 8);
+  return remarks.filter(c => c.remark.toLowerCase().includes(lower)).slice(0, 8);
 }
 
 function remarkAutocompleteActive() {
@@ -6557,13 +6600,11 @@ function updateRemarkAutocomplete() {
   remarkAutocompleteIndex = -1;
   remarkAutocompleteEl.innerHTML = '';
   suggestions.forEach(({ remark, count }) => {
-    const { dot } = remarkToColor(remark);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'remark-autocomplete-item';
     btn.setAttribute('role', 'option');
     btn.innerHTML = `
-      <span class="remark-autocomplete-item-dot" style="background:${dot}"></span>
       <span class="remark-autocomplete-item-text">${escapeHTML(remark)}</span>
       <span class="remark-autocomplete-item-count">${count} 条</span>
     `;
