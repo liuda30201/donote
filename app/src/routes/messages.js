@@ -373,13 +373,12 @@ router.post('/:id/private/toggle', requireAuth, async (req, res) => {
     const id = req.params.id;
     const record = state.messages.find(item => item.id === id);
     if (!record) return res.status(404).json({ code: 'MESSAGE_NOT_FOUND' });
+    if (record.private === true) return res.json({ success: true, message: toPublicMessage(record, userId) });
 
-    const targetPrivate = !record.private;
     await commitUserMutation(userId, candidate => {
       const msg = candidate.messages.find(item => item.id === id);
       if (!msg) throw Object.assign(new Error('not found'), { status: 404 });
-      if (targetPrivate) msg.private = true;
-      else delete msg.private;
+      msg.private = true;
     });
 
     const committed = getUserState(userId).messages.find(item => item.id === id);
@@ -419,7 +418,7 @@ router.post('/private/verify', requireAuth, async (req, res) => {
       const committed = getUserState(userId).messages;
       for (const id of updatedIds) {
         const message = committed.find(item => item.id === id);
-        if (message) req.app.get('io').broadcastPrivate(userId, toPublicMessage(message, userId));
+        if (message) req.app.get('io').broadcastPrivate(userId, { ...toPublicMessage(message, userId), private: false });
       }
       return res.json({ success: true, permanent: true, scope: target.scope, updatedIds });
     }

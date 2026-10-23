@@ -1029,6 +1029,13 @@ a:focus-visible,
   gap: var(--space-2);
 }
 
+.topbar-private-unlock {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
 /* 顶栏显眼卡片缩放控制器（− 滑块 + 像素徽章） */
 .topbar-zoom-control {
   display: inline-flex;
@@ -5333,8 +5340,14 @@ a:focus-visible,
 }
 
 .message.paste-card.is-private .message-actions .card-icon-btn:not(.card-private-action) {
+  visibility: hidden;
   opacity: 0;
   pointer-events: none;
+}
+
+.private-lock-overlay:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
 }
 
 /* 遮罩只盖 header 以下的内容区，保留彩色色带 */

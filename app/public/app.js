@@ -2212,7 +2212,11 @@ function createMessageElement(msg, isFavoritesView = false) {
 
   messageEl.appendChild(metaFooterEl);
   if (msg.private && !isPrivateCardUnlocked(msg.id)) {
-    messageEl.querySelectorAll('button:not(.private-lock-overlay):not(.card-private-action)').forEach(button => { button.disabled = true; button.tabIndex = -1; });
+    messageEl.querySelectorAll('button:not(.private-lock-overlay):not(.card-private-action), a, input, textarea, select, audio[controls], video[controls], [tabindex]').forEach(control => {
+      if ('disabled' in control) control.disabled = true;
+      control.tabIndex = -1;
+      control.setAttribute('aria-hidden', 'true');
+    });
   }
   return messageEl;
 }
@@ -2991,6 +2995,7 @@ function clearProxyAuthCookie() {
 
 async function logout(showMessage = true, revokeSession = true, fromOtherTab = false, preserveSelfSecurityOp = false) {
   clearSensitiveViewerState();
+  clearPrivateUnlockState();
   clearVerificationSecrets(); verificationSettings = null; securityEmailChallenge = null;
   if (!preserveSelfSecurityOp) cancelSelfSecurityDelivery();
   if (currentMode === 'accounts' && revokeSession) {
@@ -3031,9 +3036,7 @@ async function logout(showMessage = true, revokeSession = true, fromOtherTab = f
   isAuthenticated = false;
   messages = [];
   favorites = [];
-  privateGlobalUnlockExpiresAt = 0;
-  privateCardUnlockExpiresAt.clear();
-  if (privateRelockTimer) { clearTimeout(privateRelockTimer); privateRelockTimer = null; }
+  clearPrivateUnlockState();
   updateFavoritesBadge();
   hasMoreMessages = false;
   initialLoaded = false;
@@ -5500,7 +5503,7 @@ function updatePrivateUnlockModeNote() {
   else privateUnlockModeNote.textContent = `${selection?.scope === 'current' ? '仅显示当前卡片' : '显示全部 private 卡片'}，到期后重新加锁。`;
 }
 function setPrivateUnlockOptionsDisabled(disabled) {
-  privateUnlockScopeRow?.querySelectorAll('input').forEach(input => { input.disabled = disabled; });
+  privateUnlockScopeRow?.querySelectorAll('input').forEach(input => { input.disabled = disabled || (input.value === 'current' && !privateUnlockMessageId); });
   privateUnlockDurationRow?.querySelectorAll('button').forEach(button => { button.disabled = disabled; });
   if (privateCustomHours) privateCustomHours.disabled = disabled;
 }
