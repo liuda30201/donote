@@ -1140,7 +1140,12 @@
     <div class="modal-content title-modal-content">
       <div class="modal-header-row">
         <h3 id="title-modal-heading" class="modal-title">选择分组</h3>
-        <button id="title-modal-manage-btn" class="btn btn-secondary title-modal-manage-btn" type="button">管理分组</button>
+        <div class="modal-header-actions" style="display:inline-flex;align-items:center;gap:6px">
+          <button id="title-modal-manage-btn" class="btn btn-secondary title-modal-manage-btn" type="button">管理分组</button>
+          <button id="title-modal-close" class="btn btn-icon" type="button" aria-label="关闭">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
       </div>
       <div class="group-picker-list" id="group-picker-list">
         <!-- 动态渲染：每个分组一行 -->
@@ -1182,11 +1187,15 @@
     <div class="modal-content remark-modal-content">
       <div class="modal-header-row">
         <h3 id="remark-modal-title" class="modal-title">编辑备注</h3>
+        <button id="remark-modal-close" class="btn btn-icon" type="button" aria-label="关闭">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
       <p id="remark-modal-preview" class="remark-modal-preview"></p>
       <div class="remark-form">
         <div class="remark-input-wrapper" style="position:relative">
           <textarea id="remark-input" class="remark-textarea" maxlength="500" placeholder="添加备注说明 (⌘/Ctrl+Enter 保存)" rows="3"></textarea>
+          <div id="remark-autocomplete" class="remark-autocomplete hidden" role="listbox" aria-label="历史备注建议"></div>
         </div>
         <div class="remark-counter-row">
           <span id="remark-char-count" class="remark-char-count">0 / 500</span>
@@ -1225,6 +1234,9 @@
             </svg>
             <span>复制</span>
           </button>
+          <button id="image-viewer-close" class="paste-modal-action-btn secondary image-viewer-close" type="button" title="关闭 (Esc)" aria-label="关闭">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
         </div>
       </div>
       <div id="image-viewer-stage" class="image-viewer-stage" title="滚轮缩放，双击重置">
@@ -1258,6 +1270,9 @@
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
             </svg>
             <span>复制</span>
+          </button>
+          <button id="text-viewer-close" class="paste-modal-action-btn secondary text-viewer-close" type="button" title="关闭 (Esc)" aria-label="关闭">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
       </div>
@@ -1300,6 +1315,9 @@
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
             </svg>
             <span>复制</span>
+          </button>
+          <button id="file-viewer-close" class="paste-modal-action-btn secondary file-viewer-close" type="button" title="关闭 (Esc)" aria-label="关闭">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
       </div>
