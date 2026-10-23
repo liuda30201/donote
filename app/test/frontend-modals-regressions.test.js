@@ -180,6 +180,11 @@ test('顶部搜索框已合并为统一全局搜索（移除全部/备注切换�
     /function updateConnectionIndicator\(isConnected\)/,
     'app.js 应包含连接状态图标与悬浮提示同步函数 updateConnectionIndicator'
   );
+
+  // 7. 顶栏缩放控制器已移除多余的加减号按钮 (#card-zoom-out / #card-zoom-in)，只保留滑块与百分比重置徽章
+  assert.doesNotMatch(appHtml, /id="card-zoom-out"/, 'app.html 不应包含顶部缩放减号按钮 #card-zoom-out');
+  assert.doesNotMatch(appHtml, /id="card-zoom-in"/, 'app.html 不应包含顶部缩放加号按钮 #card-zoom-in');
+  assert.doesNotMatch(appJs, /cardZoomOutBtn|cardZoomInBtn/, 'app.js 不应残留顶部缩放加减号按钮引用');
 });
 
 

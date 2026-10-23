@@ -436,8 +436,6 @@ const cardSizeSlider = document.getElementById('card-size-slider');
 const popoverCardSizeSlider = document.getElementById('popover-card-size-slider');
 const cardSizeReset = document.getElementById('card-size-reset');
 const popoverCardSizeReset = document.getElementById('popover-card-size-reset');
-const cardZoomOutBtn = document.getElementById('card-zoom-out');
-const cardZoomInBtn = document.getElementById('card-zoom-in');
 const cardSizeValue = document.getElementById('card-size-value');
 const displaySettingsBtn = document.getElementById('display-settings-btn');
 const displaySettingsPopover = document.getElementById('display-settings-popover');
@@ -634,12 +632,6 @@ function applyCardSize(size) {
   if (cardSizeValue) {
     cardSizeValue.textContent = `${percent}%`;
   }
-  if (cardZoomOutBtn) {
-    cardZoomOutBtn.disabled = numSize <= CARD_SIZE_MIN;
-  }
-  if (cardZoomInBtn) {
-    cardZoomInBtn.disabled = numSize >= CARD_SIZE_MAX;
-  }
 }
 
 function saveAndApplyCardSize(size, { immediateSave = false } = {}) {
@@ -681,18 +673,6 @@ function initCardSize() {
     });
     popoverCardSizeSlider.addEventListener('change', (e) => {
       saveAndApplyCardSize(e.target.value, { immediateSave: true });
-    });
-  }
-
-  if (cardZoomOutBtn) {
-    cardZoomOutBtn.addEventListener('click', () => {
-      saveAndApplyCardSize(currentCardSize - CARD_SIZE_STEP, { immediateSave: true });
-    });
-  }
-
-  if (cardZoomInBtn) {
-    cardZoomInBtn.addEventListener('click', () => {
-      saveAndApplyCardSize(currentCardSize + CARD_SIZE_STEP, { immediateSave: true });
     });
   }
 

@@ -999,51 +999,19 @@ a:focus-visible,
   gap: var(--space-2);
 }
 
-/* 顶栏显眼卡片缩放控制器（− 滑块 + 像素徽章） */
+/* 顶栏显眼卡片缩放控制器（滑块 + 百分比重置徽章） */
 .topbar-zoom-control {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   height: 32px;
-  padding: 0 6px 0 8px;
+  padding: 0 6px 0 11px;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-full);
   box-shadow: var(--shadow-xs);
   user-select: none;
   flex-shrink: 0;
-}
-
-.zoom-step-btn {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: var(--bg-subtle);
-  color: var(--text-secondary);
-  font-size: 0.92rem;
-  font-weight: 600;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
-}
-
-.zoom-step-btn:hover:not(:disabled) {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.zoom-step-btn:active:not(:disabled) {
-  transform: scale(0.92);
-}
-
-.zoom-step-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
 }
 
 .topbar-zoom-control #card-size-slider {
