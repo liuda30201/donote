@@ -13,18 +13,7 @@
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#F5F5F7">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2.1.0">
-  <script src="https://cdn.jsdelivr.net/npm/@twemoji/api@15.1.0/dist/twemoji.min.js" crossorigin="anonymous"></script>
-  <script>
-    (function() {
-      try {
-        var savedTheme = localStorage.getItem('web-clipboard-theme');
-        if (savedTheme === 'dark' || savedTheme === 'light') {
-          document.documentElement.setAttribute('data-theme', savedTheme);
-        }
-        // 身份仅由服务器确认；不凭本地密码预先展示工作台。
-      } catch (e) {}
-    })();
-  </script>
+  <script src="/theme-init.js?v=2.1.10"></script>
 </head>
 
 <body>
@@ -1471,7 +1460,7 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/highlight.js?v=2.1.0"></script>
-  <script src="/app.js?v=2.1.9"></script>
+  <script src="/app.js?v=2.1.10"></script>
 </body>
 
 </html>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'web-clipboard-v2.5.0';
+const CACHE_NAME = 'web-clipboard-v2.5.1';
 // 注意：不要在这里放 /share.html、/share.js。
 // 分享功能在应用层与 nginx 层都已整体禁用（固定返回 404），把这两个路径写进
 // 预缓存列表会让 cache.addAll() 整体失败（它要求每个请求都 2xx），
@@ -18,8 +18,9 @@ const ASSETS = [
   '/images/across-devices.webp',
   '/app.html',
   '/offline.html',
-  '/style.css?v=2.1.8',
-  '/app.js?v=2.1.4',
+  '/style.css?v=2.1.9',
+  '/theme-init.js?v=2.1.10',
+  '/app.js?v=2.1.10',
   '/highlight.js',
   '/heic2any.min.js',
   '/logo.png',

@@ -3519,9 +3519,6 @@ function applyAvatarToElement(element, avatar) {
     return;
   }
   element.textContent = value.value;
-  if ((value.type === 'emoji' || value.type === 'icon') && typeof twemoji !== 'undefined') {
-    twemoji.parse(element, { folder: 'svg', ext: '.svg' });
-  }
 }
 
 function updateAvatarPreview(avatar) {
