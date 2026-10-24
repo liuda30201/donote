@@ -106,6 +106,7 @@ function createAuthRouter({ authService, version = APP_VERSION }) {
   sessionRouter.post('/auth/email/confirm', endpoint((req,res)=>{jsonRequest(req);const result=authService.emailVerification.confirmBind(req);notify(req);res.json(result);}));
   sessionRouter.post('/auth/verification', endpoint(async(req,res)=>{jsonRequest(req);const result=await authService.emailVerification.change(req);notify(req);res.json(result);}));
   sessionRouter.get('/auth/me', endpoint((req, res) => res.json(authService.me(req))));
+  sessionRouter.post('/user/avatar', endpoint((req, res) => { jsonRequest(req); res.json(authService.updateAvatar(req)); }));
   sessionRouter.post('/auth/logout', endpoint((req, res) => {
     jsonRequest(req); authService.logout(req); notify(req);
     setCookie(res, authService.cookieName, '', { ...authService.cookieOptions(true, 0), maxAge: 0 });

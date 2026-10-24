@@ -19,6 +19,9 @@ test('app.html 包含工作台全量弹窗关闭控件与备注自动补全容�
     'title-modal-close',
     'remark-modal-close',
     'remark-autocomplete',
+    'group-quick-picker',
+    'group-toggle-button',
+    'group-quick-picker-close',
     'image-viewer-close',
     'text-viewer-close',
     'file-viewer-close'
@@ -51,6 +54,13 @@ test('app.js 不再残留未定义的 closeSettingsPopover 或 handleSuccessfulL
   );
 });
 
+test('分组筛选入口仅在存在分组时显示，快速选择仅列出已有分组', () => {
+  assert.match(appHtml, /class="filter-chip group-toggle-chip hidden" id="group-toggle-button"/);
+  assert.match(appJs, /groupToggleButton\?\.classList\.toggle\('hidden', !hasGroups\)/);
+  assert.doesNotMatch(appHtml, /选择一个分组筛选内容|全部分组/);
+  assert.doesNotMatch(appJs, /textContent\s*=\s*'全部分组'/);
+});
+
 test('app.js 动态分类/备注/分组渲染对特殊字符执行 HTML 转义（防 DOM XSS）', () => {
   // 提取 escapeHTML 与 remarkToColor 函数在沙箱中验证
   const escapeStart = appJs.indexOf('function escapeHTML(str)');
@@ -66,7 +76,7 @@ test('app.js 动态分类/备注/分组渲染对特殊字符执行 HTML 转义�
   assert.equal(escaped, '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');
 
   // 验证关键 innerHTML 模板均已使用 escapeHTML 包裹
-  assert.match(appJs, /<span class="category-chip-dot"[^>]*><\/span>\$\{escapeHTML\(name\)\}/);
+  assert.match(appJs, /<span class="category-chip-dot"[^>]*><\/span><span class="category-chip-label">\$\{escapeHTML\(name\)\}<\/span><span class="category-chip-count">/);
   assert.match(appJs, /<span class="group-picker-name">\$\{escapeHTML\(name\)\}<\/span>/);
   assert.match(appJs, /<span class="groups-manager-name">\$\{escapeHTML\(name\)\}<\/span>/);
   assert.match(appJs, /<span class="remark-autocomplete-item-text">\$\{escapeHTML\(remark\)\}<\/span>/);

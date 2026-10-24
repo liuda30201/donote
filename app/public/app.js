@@ -81,6 +81,18 @@ const avatarPreviewLarge = document.getElementById('avatar-preview-large');
 const avatarCustomInput = document.getElementById('avatar-custom-input');
 const avatarCustomPreview = document.getElementById('avatar-custom-preview');
 const avatarPresetGrid = document.getElementById('avatar-preset-grid');
+const avatarUploadTrigger = document.getElementById('avatar-upload-trigger');
+const avatarImageInput = document.getElementById('avatar-image-input');
+const avatarRemove = document.getElementById('avatar-remove');
+const avatarCropPanel = document.getElementById('avatar-crop-panel');
+const avatarCropStage = document.getElementById('avatar-crop-stage');
+const avatarCropCanvas = document.getElementById('avatar-crop-canvas');
+const avatarCropFilename = document.getElementById('avatar-crop-filename');
+const avatarZoom = document.getElementById('avatar-zoom');
+const avatarRotate = document.getElementById('avatar-rotate');
+const avatarCropReset = document.getElementById('avatar-crop-reset');
+const avatarCropApply = document.getElementById('avatar-crop-apply');
+const avatarCropStatus = document.getElementById('avatar-crop-status');
 let adminGeneration = 0;
 let adminPending = null;
 const securityReauthBtn = document.getElementById('security-reauth-btn');
@@ -281,7 +293,7 @@ function clearPrivateUnlockState() {
   if (privateRelockTimer) clearTimeout(privateRelockTimer);
   privateRelockTimer = null;
 }
-const filterChips = document.querySelectorAll('.filter-chip');
+const filterChips = document.querySelectorAll('.filter-chip[data-filter]');
 let userId = null; // 多用户模式下的用户 ID
 let currentMode = 'pending'; // 服务端确认前禁止凭据请求
 let accountChallenge = null;
@@ -311,6 +323,8 @@ function revalidateVisibleAccount() {
         await logout(false, false, true);
         return;
       }
+      accountUser = { ...accountUser, ...me.user };
+      applyAvatarToUI(getStoredAvatar());
       accountCsrfToken = me.csrfToken || null;
     } catch {
       if (epoch === accountEpoch) await logout(false, false, true);
@@ -556,7 +570,49 @@ function aggregateRemarks(msgs) {
 }
 
 const categoryChipsEl = document.getElementById('category-chips');
-const categoryDividerEl = document.getElementById('category-divider');
+const groupQuickPicker = document.getElementById('group-quick-picker');
+const groupToggleButton = document.getElementById('group-toggle-button');
+const groupQuickPickerClose = document.getElementById('group-quick-picker-close');
+let groupQuickPickerOpen = false;
+
+function setGroupQuickPickerOpen(open) {
+  groupQuickPickerOpen = Boolean(open);
+  groupQuickPicker?.classList.toggle('hidden', !groupQuickPickerOpen);
+  groupToggleButton?.setAttribute('aria-expanded', String(groupQuickPickerOpen));
+  groupToggleButton?.setAttribute('aria-pressed', String(Boolean(currentCategoryFilter)));
+  groupToggleButton?.classList.toggle('active', groupQuickPickerOpen || Boolean(currentCategoryFilter));
+  groupToggleButton?.setAttribute('title', currentCategoryFilter ? `当前分组：${currentCategoryFilter}` : (groupQuickPickerOpen ? '关闭分组筛选' : '打开分组筛选'));
+}
+
+function applyCategoryFilter(name) {
+  currentCategoryFilter = name;
+  setGroupQuickPickerOpen(false);
+  renderCategoryChips();
+  if (searchState.active) renderSearchResults(); else renderMessages({ scrollBottom: true });
+  if (currentTab === 'favorites') renderFavorites();
+}
+
+groupToggleButton?.addEventListener('click', () => {
+  const open = !groupQuickPickerOpen;
+  setGroupQuickPickerOpen(open);
+  if (open) (categoryChipsEl?.querySelector('button') || groupQuickPickerClose)?.focus({ preventScroll: true });
+});
+groupQuickPickerClose?.addEventListener('click', () => {
+  setGroupQuickPickerOpen(false);
+  groupToggleButton?.focus();
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || !groupQuickPickerOpen) return;
+  event.preventDefault();
+  setGroupQuickPickerOpen(false);
+  groupToggleButton?.focus();
+});
+document.addEventListener('pointerdown', event => {
+  if (!groupQuickPickerOpen) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('#group-quick-picker, #group-toggle-button')) return;
+  setGroupQuickPickerOpen(false);
+});
 
 function renderCategoryChips() {
   if (!categoryChipsEl) return;
@@ -573,29 +629,29 @@ function renderCategoryChips() {
   })).filter(c => c.count > 0);
 
   categoryChipsEl.innerHTML = '';
+  const hasGroups = cats.length > 0;
+  groupToggleButton?.classList.toggle('hidden', !hasGroups);
 
-  if (cats.length === 0) {
-    if (categoryDividerEl) categoryDividerEl.classList.add('hidden');
+  if (!hasGroups) {
+    setGroupQuickPickerOpen(false);
     return;
   }
 
-  if (categoryDividerEl) categoryDividerEl.classList.remove('hidden');
-
   cats.forEach(({ name, count }) => {
-    const { bg, text, dot } = remarkToColor(name);
+    const { dot } = remarkToColor(name);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'category-chip';
     if (currentCategoryFilter === name) btn.classList.add('active');
-    btn.innerHTML = `<span class="category-chip-dot" style="background:${dot}"></span>${escapeHTML(name)}`;
-    btn.title = `${count} 条`;
+    btn.setAttribute('aria-pressed', String(currentCategoryFilter === name));
+    btn.innerHTML = `<span class="category-chip-dot" style="background:${dot}"></span><span class="category-chip-label">${escapeHTML(name)}</span><span class="category-chip-count">${count}</span>`;
+    btn.title = `${name} · ${count} 条`;
     btn.addEventListener('click', () => {
-      currentCategoryFilter = currentCategoryFilter === name ? null : name;
-      renderCategoryChips();
-      if (searchState.active) renderSearchResults(); else renderMessages({ scrollBottom: true });
+      applyCategoryFilter(currentCategoryFilter === name ? null : name);
     });
     categoryChipsEl.appendChild(btn);
   });
+  setGroupQuickPickerOpen(groupQuickPickerOpen);
 }
 
 const CARD_SIZE_MIN = 80;
@@ -720,21 +776,7 @@ function initDisplaySettings() {
         popoverUserInfoBar.classList.remove('hidden');
         if (popoverUserDivider) popoverUserDivider.classList.remove('hidden');
 
-        // 应用存储的头像
-        const storedAvatar = getStoredAvatar();
-        if (storedAvatar.type === 'emoji' || storedAvatar.type === 'icon') {
-          if (storedAvatar.value === 'tg-plane') {
-            popoverCompactAvatar.innerHTML = `
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="color: #0088cc;">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-              </svg>
-            `;
-          } else {
-            popoverCompactAvatar.textContent = storedAvatar.value;
-          }
-        } else {
-          popoverCompactAvatar.textContent = storedAvatar.value.toUpperCase();
-        }
+        applyAvatarToElement(popoverCompactAvatar, getStoredAvatar());
 
         popoverCompactName.textContent = accountUser.displayName || accountUser.username;
         if (popoverCompactEmail) {
@@ -1306,11 +1348,12 @@ function formatTime(timestamp) {
 }
 
 function updateMessageCount() {
-  messageCount.textContent = `${messages.length} 条消息`;
-  clearAllBtn.disabled = messages.length === 0;
+  if (messageCount) messageCount.textContent = `${messages.length} 条消息`;
+  if (clearAllBtn) clearAllBtn.disabled = messages.length === 0;
 }
 
 function updateExpireInfo(hours) {
+  if (!expireInfo) return;
   if (hours >= 24) {
     const days = Math.floor(hours / 24);
     expireInfo.textContent = `数据保留 ${days} 天`;
@@ -2651,12 +2694,12 @@ function setRegistrationMode(enabled) {
     emailCodeChallenge = null;
   }
   document.getElementById('registration-fields')?.classList.toggle('hidden', !registrationMode);
+  document.getElementById('registration-badge')?.classList.toggle('hidden', !registrationMode);
   document.getElementById('registration-toggle')?.classList.toggle('hidden', !registrationAvailable);
   document.getElementById('registration-toggle').textContent = registrationMode ? '返回登录' : '注册';
   authBtn.textContent = registrationMode ? (registrationChallenge ? '确认邮箱并创建账户' : '发送验证码') : '登录';
   document.getElementById('username-label')?.classList.remove('hidden');
   document.getElementById('username-input')?.classList.remove('hidden');
-  document.getElementById('password-help')?.classList.toggle('hidden', !registrationMode);
   passwordInput.required = registrationMode;
   document.getElementById('account-advanced')?.classList.add('hidden');
   document.getElementById('account-reset-btn')?.classList.add('hidden');
@@ -2666,16 +2709,10 @@ function setRegistrationMode(enabled) {
     document.getElementById('registration-code-fields')?.classList.add('hidden');
     document.getElementById('registration-code').value = '';
     document.getElementById('registration-code').required = false;
-    document.getElementById('registration-challenge-actions')?.classList.add('hidden');
-    document.getElementById('registration-note').textContent = '填写邮箱和密码，验证邮箱后即可登录';
   } else {
     document.getElementById('registration-code-fields')?.classList.toggle('hidden', !registrationChallenge);
-    document.getElementById('registration-challenge-actions')?.classList.toggle('hidden', !registrationChallenge);
     document.getElementById('registration-code').required = Boolean(registrationChallenge);
     const locked = Boolean(registrationChallenge);
-    document.getElementById('registration-note').textContent = locked
-      ? '邮箱和密码已锁定。输入收到的验证码即可创建账户。'
-      : '填写邮箱和密码，点击发送验证码；验证成功后即可登录。';
     document.getElementById('username-input').disabled = locked;
     document.getElementById('password-input').disabled = locked;
     document.getElementById('registration-code').disabled = false;
@@ -3071,7 +3108,7 @@ async function logout(showMessage = true, revokeSession = true, fromOtherTab = f
   }
 }
 
-async function fetchMessagesPage({ before, limit = PAGE_SIZE } = {}) {
+async function fetchMessagesPage({ before, limit = PAGE_SIZE, signal } = {}) {
   const params = new URLSearchParams();
   params.set('limit', String(limit));
   if (Number.isFinite(before)) {
@@ -3083,7 +3120,7 @@ async function fetchMessagesPage({ before, limit = PAGE_SIZE } = {}) {
     params.set('userId', userId);
   }
 
-  const response = await authFetch(`/api/messages?${params.toString()}`);
+  const response = await authFetch(`/api/messages?${params.toString()}`, { signal });
   if (!response.ok) {
     throw new Error(`Failed to load messages: ${response.status}`);
   }
@@ -3092,6 +3129,16 @@ async function fetchMessagesPage({ before, limit = PAGE_SIZE } = {}) {
 
 async function loadInitialMessages() {
   const requestEpoch = accountEpoch;
+  const loadController = new AbortController();
+  const sessionSignal = currentMode === 'accounts' ? accountRequestOptions().signal : null;
+  let timedOut = false;
+  const abortForSessionChange = () => loadController.abort(sessionSignal.reason);
+  if (sessionSignal?.aborted) abortForSessionChange();
+  else sessionSignal?.addEventListener('abort', abortForSessionChange, { once: true });
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    loadController.abort();
+  }, 15000);
   // SWR: 优先从本地缓存渲染消息，实现刷新零延迟秒开
   try {
     const cachedMsgStr = (currentMode === 'accounts' ? null : localStorage.getItem('web-clipboard-cached-messages'));
@@ -3110,9 +3157,9 @@ async function loadInitialMessages() {
   }
 
   try {
-    const data = await fetchMessagesPage({ limit: PAGE_SIZE });
+    const data = await fetchMessagesPage({ limit: PAGE_SIZE, signal: loadController.signal });
     if (requestEpoch !== accountEpoch) return;
-    messages = data.messages || [];
+    messages = Array.isArray(data.messages) ? data.messages : [];
     hasMoreMessages = Boolean(data.hasMore);
     updateExpireInfo(data.expireHours || 168);
     initialLoaded = true;
@@ -3124,10 +3171,22 @@ async function loadInitialMessages() {
       if (currentMode !== 'accounts') localStorage.setItem('web-clipboard-cached-messages', JSON.stringify(messages.slice(0, 50)));
     } catch (e) {}
   } catch (error) {
+    if (requestEpoch !== accountEpoch) return;
     isInitialLoading = false;
     renderMessages();
-    showToast('加载消息失败');
-    console.error(error);
+    if (timedOut) {
+      showToast('加载消息超时，请刷新重试');
+    } else if (error.name !== 'AbortError') {
+      showToast('加载消息失败，请刷新重试');
+      console.error(error);
+    }
+  } finally {
+    clearTimeout(timeoutId);
+    sessionSignal?.removeEventListener('abort', abortForSessionChange);
+    if (requestEpoch === accountEpoch && isInitialLoading) {
+      isInitialLoading = false;
+      renderMessages();
+    }
   }
 }
 
@@ -3407,244 +3466,309 @@ aboutClose?.addEventListener('click', () => { aboutModal?.classList.add('hidden'
 aboutModal?.addEventListener('click', (e) => { if (e.target === aboutModal) aboutModal?.classList.add('hidden'); });
 
 // ========== 头像编辑器 ==========
+const AVATAR_MAX_FILE_BYTES = 10 * 1024 * 1024;
+const AVATAR_OUTPUT_SIZE = 280;
 let currentAvatarSelection = { type: '', value: '' };
+let avatarCropState = null;
+let avatarCropPointer = null;
+
+function avatarDefaultSelection() {
+  const value = (accountUser?.displayName || accountUser?.username || 'U').trim().charAt(0).toUpperCase() || 'U';
+  return { type: 'text', value };
+}
+
+function isUsableAvatar(value) {
+  if (!value || typeof value !== 'object' || typeof value.type !== 'string' || typeof value.value !== 'string') return false;
+  if (value.type === 'text') return Array.from(value.value.trim()).length === 1;
+  if (value.type === 'emoji') return value.value.trim().length > 0 && Array.from(value.value).length <= 8;
+  if (value.type === 'icon') return value.value === 'tg-plane';
+  return value.type === 'image' && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value.value);
+}
+
+function getStoredAvatar() {
+  if (currentMode === 'accounts' && isUsableAvatar(accountUser?.avatar)) return { ...accountUser.avatar };
+  if (currentMode !== 'accounts') {
+    try {
+      const stored = JSON.parse(localStorage.getItem('web-clipboard-avatar') || 'null');
+      if (isUsableAvatar(stored)) return stored;
+    } catch { /* Ignore malformed local preference and use the account initial. */ }
+  }
+  return avatarDefaultSelection();
+}
+
+function renderTelegramIcon(element) {
+  element.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="color: #0088cc;" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>`;
+}
+
+function applyAvatarToElement(element, avatar) {
+  if (!element) return;
+  const value = isUsableAvatar(avatar) ? avatar : avatarDefaultSelection();
+  element.classList.remove('avatar-image-preview');
+  element.textContent = '';
+  if (value.type === 'image') {
+    const image = document.createElement('img');
+    image.src = value.value;
+    image.alt = '';
+    image.draggable = false;
+    element.classList.add('avatar-image-preview');
+    element.appendChild(image);
+    return;
+  }
+  if (value.type === 'icon' && value.value === 'tg-plane') {
+    renderTelegramIcon(element);
+    return;
+  }
+  element.textContent = value.value;
+  if ((value.type === 'emoji' || value.type === 'icon') && typeof twemoji !== 'undefined') {
+    twemoji.parse(element, { folder: 'svg', ext: '.svg' });
+  }
+}
+
+function updateAvatarPreview(avatar) {
+  applyAvatarToElement(avatarPreviewLarge, avatar);
+}
+
+function applyAvatarToUI(avatar) {
+  applyAvatarToElement(document.getElementById('topbar-user-avatar'), avatar);
+  applyAvatarToElement(document.getElementById('popover-compact-avatar'), avatar);
+}
+
+function markSelectedPreset() {
+  document.querySelectorAll('.avatar-preset-item').forEach(item => {
+    item.classList.toggle('selected', item.dataset.type === currentAvatarSelection.type && item.dataset.value === currentAvatarSelection.value);
+  });
+}
+
+function updateAvatarUploadControls() {
+  if (avatarUploadTrigger) avatarUploadTrigger.textContent = '上传';
+  if (avatarRemove) avatarRemove.disabled = currentAvatarSelection.type !== 'image';
+}
+
+function setAvatarSelection(selection) {
+  currentAvatarSelection = { ...selection };
+  markSelectedPreset();
+  updateAvatarPreview(currentAvatarSelection.type === 'default' ? avatarDefaultSelection() : currentAvatarSelection);
+  updateAvatarUploadControls();
+  if (avatarCustomInput && currentAvatarSelection.type !== 'text') avatarCustomInput.value = '';
+}
+
+function cropImageMetrics(state) {
+  const size = avatarCropCanvas?.width || AVATAR_OUTPUT_SIZE;
+  const rotated = Math.abs(state.rotation % 180) === 90;
+  const sourceWidth = rotated ? state.image.naturalHeight : state.image.naturalWidth;
+  const sourceHeight = rotated ? state.image.naturalWidth : state.image.naturalHeight;
+  const scale = Math.max(size / sourceWidth, size / sourceHeight) * state.zoom;
+  const drawWidth = state.image.naturalWidth * scale;
+  const drawHeight = state.image.naturalHeight * scale;
+  const visibleWidth = rotated ? drawHeight : drawWidth;
+  const visibleHeight = rotated ? drawWidth : drawHeight;
+  const maxX = Math.max(0, (visibleWidth - size) / 2);
+  const maxY = Math.max(0, (visibleHeight - size) / 2);
+  state.offsetX = Math.max(-maxX, Math.min(maxX, state.offsetX));
+  state.offsetY = Math.max(-maxY, Math.min(maxY, state.offsetY));
+  return { size, scale, drawWidth, drawHeight };
+}
+
+function drawAvatarCrop() {
+  if (!avatarCropState || !avatarCropCanvas) return;
+  const state = avatarCropState;
+  const metrics = cropImageMetrics(state);
+  const context = avatarCropCanvas.getContext('2d');
+  if (!context) return;
+  context.clearRect(0, 0, metrics.size, metrics.size);
+  context.fillStyle = '#111';
+  context.fillRect(0, 0, metrics.size, metrics.size);
+  context.save();
+  context.translate(metrics.size / 2 + state.offsetX, metrics.size / 2 + state.offsetY);
+  context.rotate(state.rotation * Math.PI / 180);
+  context.drawImage(state.image, -metrics.drawWidth / 2, -metrics.drawHeight / 2, metrics.drawWidth, metrics.drawHeight);
+  context.restore();
+}
+
+function resetAvatarCrop() {
+  if (!avatarCropState) return;
+  avatarCropState.zoom = 1;
+  avatarCropState.rotation = 0;
+  avatarCropState.offsetX = 0;
+  avatarCropState.offsetY = 0;
+  if (avatarZoom) avatarZoom.value = '1';
+  drawAvatarCrop();
+}
+
+function hideAvatarCrop() {
+  avatarCropState = null;
+  avatarCropPointer = null;
+  avatarCropPanel?.classList.add('hidden');
+  if (avatarImageInput) avatarImageInput.value = '';
+}
+
+async function showAvatarCrop(file) {
+  const normalizedFile = await convertHeicToJpegIfNeeded(file);
+  if (!normalizedFile || !/^image\/(?:jpeg|png|webp)$/.test(normalizedFile.type)) {
+    showToast('请选择 JPG、PNG、WebP 或 HEIC 图片');
+    return;
+  }
+  if (normalizedFile.size > AVATAR_MAX_FILE_BYTES) {
+    showToast('图片不能超过 10 MB');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const image = new Image();
+    image.onload = () => {
+      if (image.naturalWidth < 32 || image.naturalHeight < 32 || image.naturalWidth > 10000 || image.naturalHeight > 10000) {
+        showToast('图片尺寸不受支持');
+        return;
+      }
+      avatarCropState = { image, zoom: 1, rotation: 0, offsetX: 0, offsetY: 0 };
+      avatarCropPanel?.classList.remove('hidden');
+      if (avatarCropFilename) avatarCropFilename.textContent = normalizedFile.name;
+      if (avatarCropStatus) avatarCropStatus.textContent = '拖动照片调整位置，可缩放或旋转。';
+      if (avatarZoom) avatarZoom.value = '1';
+      drawAvatarCrop();
+    };
+    image.onerror = () => showToast('图片读取失败，请换一张图片');
+    image.src = String(reader.result || '');
+  };
+  reader.onerror = () => showToast('图片读取失败，请重试');
+  reader.readAsDataURL(normalizedFile);
+}
+
+function applyAvatarCrop() {
+  if (!avatarCropState || !avatarCropCanvas) return false;
+  drawAvatarCrop();
+  let data = avatarCropCanvas.toDataURL('image/webp', 0.88);
+  if (!data.startsWith('data:image/webp')) data = avatarCropCanvas.toDataURL('image/jpeg', 0.88);
+  if (data.length > 320000) data = avatarCropCanvas.toDataURL('image/jpeg', 0.72);
+  if (data.length > 320000 && avatarCropStatus) avatarCropStatus.textContent = '照片压缩后仍过大，请换一张图片。';
+  if (data.length > 320000) return false;
+  setAvatarSelection({ type: 'image', value: data });
+  avatarCropPanel?.classList.add('hidden');
+  avatarCropState = null;
+  if (avatarImageInput) avatarImageInput.value = '';
+  if (avatarCropStatus) avatarCropStatus.textContent = '已应用裁切。';
+  return true;
+}
 
 // 分类标签切换
-document.querySelectorAll('.avatar-category-tab').forEach(tab => {
+ document.querySelectorAll('.avatar-category-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     const category = tab.dataset.category;
-
-    // 切换标签状态
-    document.querySelectorAll('.avatar-category-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-
-    // 切换内容显示
-    document.querySelectorAll('.avatar-category-content').forEach(content => {
-      content.classList.toggle('active', content.dataset.category === category);
-    });
+    document.querySelectorAll('.avatar-category-tab').forEach(item => item.classList.toggle('active', item === tab));
+    document.querySelectorAll('.avatar-category-content').forEach(content => content.classList.toggle('active', content.dataset.category === category));
   });
 });
+
+function closeAvatarEditor() {
+  hideAvatarCrop();
+  avatarEditorModal?.classList.add('hidden');
+}
 
 // 打开头像编辑器
-avatarEditTrigger?.addEventListener('click', (e) => {
+avatarEditTrigger?.addEventListener('click', e => {
   e.stopPropagation();
+  currentAvatarSelection = getStoredAvatar();
+  updateAvatarPreview(currentAvatarSelection);
+  markSelectedPreset();
+  if (avatarCustomInput) avatarCustomInput.value = currentAvatarSelection.type === 'text' ? currentAvatarSelection.value : '';
+  hideAvatarCrop();
+  updateAvatarUploadControls();
   avatarEditorModal?.classList.remove('hidden');
-
-  // 初始化当前头像显示
-  const currentAvatar = getStoredAvatar();
-  updateAvatarPreview(currentAvatar);
-
-  // 清除之前的选择状态
-  currentAvatarSelection = { ...currentAvatar };
-  document.querySelectorAll('.avatar-preset-item').forEach(item => {
-    item.classList.remove('selected');
-    if (item.dataset.type === currentAvatar.type && item.dataset.value === currentAvatar.value) {
-      item.classList.add('selected');
-    }
-  });
-
-  if (currentAvatar.type === 'text') {
-    avatarCustomInput.value = currentAvatar.value;
-  } else {
-    avatarCustomInput.value = '';
-  }
-
   closeSettingsPopover();
 });
+avatarEditorClose?.addEventListener('click', closeAvatarEditor);
+avatarEditorCancel?.addEventListener('click', closeAvatarEditor);
+avatarEditorModal?.addEventListener('click', e => { if (e.target === avatarEditorModal) closeAvatarEditor(); });
 
-// 关闭头像编辑器
-avatarEditorClose?.addEventListener('click', () => { avatarEditorModal?.classList.add('hidden'); });
-avatarEditorCancel?.addEventListener('click', () => { avatarEditorModal?.classList.add('hidden'); });
-avatarEditorModal?.addEventListener('click', (e) => { if (e.target === avatarEditorModal) avatarEditorModal?.classList.add('hidden'); });
+avatarUploadTrigger?.addEventListener('click', () => avatarImageInput?.click());
+avatarImageInput?.addEventListener('change', () => {
+  const file = avatarImageInput.files?.[0];
+  if (file) showAvatarCrop(file);
+});
+avatarRemove?.addEventListener('click', () => {
+  hideAvatarCrop();
+  currentAvatarSelection = { type: 'default', value: '' };
+  markSelectedPreset();
+  if (avatarCustomInput) avatarCustomInput.value = '';
+  updateAvatarPreview(avatarDefaultSelection());
+  updateAvatarUploadControls();
+  if (avatarCropStatus) avatarCropStatus.textContent = '保存后恢复为默认首字母头像。';
+});
+
+avatarCropStage?.addEventListener('pointerdown', e => {
+  if (!avatarCropState) return;
+  avatarCropPointer = { id: e.pointerId, x: e.clientX, y: e.clientY };
+  avatarCropStage.setPointerCapture?.(e.pointerId);
+});
+avatarCropStage?.addEventListener('pointermove', e => {
+  if (!avatarCropPointer || !avatarCropState || avatarCropPointer.id !== e.pointerId) return;
+  const rect = avatarCropStage.getBoundingClientRect();
+  avatarCropState.offsetX += (e.clientX - avatarCropPointer.x) * (avatarCropCanvas.width / rect.width);
+  avatarCropState.offsetY += (e.clientY - avatarCropPointer.y) * (avatarCropCanvas.height / rect.height);
+  avatarCropPointer.x = e.clientX;
+  avatarCropPointer.y = e.clientY;
+  drawAvatarCrop();
+});
+const releaseAvatarCropPointer = e => { if (avatarCropPointer?.id === e.pointerId) avatarCropPointer = null; };
+avatarCropStage?.addEventListener('pointerup', releaseAvatarCropPointer);
+avatarCropStage?.addEventListener('pointercancel', releaseAvatarCropPointer);
+avatarZoom?.addEventListener('input', () => { if (avatarCropState) { avatarCropState.zoom = Number(avatarZoom.value) || 1; drawAvatarCrop(); } });
+avatarRotate?.addEventListener('click', () => { if (avatarCropState) { avatarCropState.rotation = (avatarCropState.rotation + 90) % 360; drawAvatarCrop(); } });
+avatarCropReset?.addEventListener('click', resetAvatarCrop);
+avatarCropApply?.addEventListener('click', () => applyAvatarCrop());
 
 // 预设图标选择
-avatarPresetGrid?.addEventListener('click', (e) => {
+avatarPresetGrid?.addEventListener('click', e => {
   const item = e.target.closest('.avatar-preset-item');
   if (!item) return;
-
-  // 清除其他选中状态
-  document.querySelectorAll('.avatar-preset-item').forEach(el => el.classList.remove('selected'));
-  item.classList.add('selected');
-
-  // 更新选择状态
-  currentAvatarSelection = {
-    type: item.dataset.type,
-    value: item.dataset.value
-  };
-
-  // 更新预览
-  updateAvatarPreview(currentAvatarSelection);
-
-  // 清空自定义输入
-  if (avatarCustomInput) avatarCustomInput.value = '';
+  hideAvatarCrop();
+  setAvatarSelection({ type: item.dataset.type, value: item.dataset.value });
 });
 
-// 自定义文字预览
 avatarCustomPreview?.addEventListener('click', () => {
   const value = avatarCustomInput?.value.trim();
-  if (!value) {
-    showToast('请输入一个字符');
-    return;
-  }
-
-  // 清除预设图标选中状态
-  document.querySelectorAll('.avatar-preset-item').forEach(el => el.classList.remove('selected'));
-
-  // 更新选择状态
-  currentAvatarSelection = {
-    type: 'text',
-    value: value
-  };
-
-  // 更新预览
-  updateAvatarPreview(currentAvatarSelection);
+  if (!value) { showToast('请输入一个字符'); return; }
+  const first = Array.from(value)[0];
+  setAvatarSelection({ type: 'text', value: first });
 });
-
-// 自定义输入框实时预览与回车确认
 avatarCustomInput?.addEventListener('input', () => {
   const value = avatarCustomInput.value.trim();
-  if (!value) return;
-  document.querySelectorAll('.avatar-preset-item').forEach(el => el.classList.remove('selected'));
-  currentAvatarSelection = { type: 'text', value };
-  updateAvatarPreview(currentAvatarSelection);
+  if (value) setAvatarSelection({ type: 'text', value: Array.from(value)[0] });
 });
-avatarCustomInput?.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    avatarCustomPreview?.click();
-  }
+avatarCustomInput?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); avatarCustomPreview?.click(); }
 });
 
-// 保存头像
 avatarEditorSave?.addEventListener('click', async () => {
-  if (!currentAvatarSelection.type || !currentAvatarSelection.value) {
-    showToast('请选择或输入一个头像');
-    return;
-  }
-
+  if (avatarCropState && !applyAvatarCrop()) { showToast('裁切后的图片过大，请换一张图片'); return; }
+  const isDefault = currentAvatarSelection.type === 'default';
+  const avatar = isDefault ? null : currentAvatarSelection;
+  if (!avatar && !isDefault) { showToast('请选择或上传一个头像'); return; }
+  if (avatar && !isUsableAvatar(avatar)) { showToast('头像格式无效，请重新选择'); return; }
+  avatarEditorSave.disabled = true;
   try {
-    // 保存到本地存储
-    localStorage.setItem('web-clipboard-avatar', JSON.stringify(currentAvatarSelection));
-
-    // 如果是账户模式，尝试同步到服务器（可选，失败不影响本地使用）
     if (currentMode === 'accounts' && accountUser) {
-      try {
-        const response = await authFetch('/api/user/avatar', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(currentAvatarSelection)
-        });
-
-        if (!response.ok) {
-          console.warn('服务器保存头像失败，但本地已保存');
-        }
-      } catch (serverError) {
-        console.warn('服务器保存头像失败，但本地已保存:', serverError);
-      }
+      const response = await authFetch('/api/user/avatar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '头像保存失败');
+      accountUser = data.user || { ...accountUser, avatar: data.avatar };
+      currentAvatarSelection = data.avatar || avatarDefaultSelection();
+    } else if (avatar) {
+      localStorage.setItem('web-clipboard-avatar', JSON.stringify(avatar));
+      currentAvatarSelection = avatar;
+    } else {
+      localStorage.removeItem('web-clipboard-avatar');
+      currentAvatarSelection = avatarDefaultSelection();
     }
-
-    // 更新所有头像显示
     applyAvatarToUI(currentAvatarSelection);
-
     showToast('头像已更新');
-    avatarEditorModal?.classList.add('hidden');
+    closeAvatarEditor();
   } catch (error) {
-    console.error('保存头像失败:', error);
-    showToast('保存头像失败，请重试');
+    if (error.name !== 'AbortError') { console.error('保存头像失败:', error); showToast(error.message || '保存头像失败，请重试'); }
+  } finally {
+    avatarEditorSave.disabled = false;
   }
 });
-
-// 获取存储的头像
-function getStoredAvatar() {
-  const stored = localStorage.getItem('web-clipboard-avatar');
-  if (stored) {
-    try {
-      return JSON.parse(stored);
-    } catch (e) {
-      console.error('解析头像数据失败:', e);
-    }
-  }
-
-  // 默认使用用户名首字母
-  if (accountUser) {
-    const initial = (accountUser.displayName || accountUser.username || 'U').charAt(0).toUpperCase();
-    return { type: 'text', value: initial };
-  }
-
-  return { type: 'text', value: 'U' };
-}
-
-// 更新头像预览
-function updateAvatarPreview(avatar) {
-  if (!avatarPreviewLarge) return;
-
-  if (avatar.type === 'emoji' || avatar.type === 'icon') {
-    if (avatar.value === 'tg-plane') {
-      avatarPreviewLarge.innerHTML = `
-        <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor" style="color: #0088cc;">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-        </svg>
-      `;
-    } else {
-      avatarPreviewLarge.textContent = avatar.value;
-    }
-  } else {
-    avatarPreviewLarge.textContent = avatar.value.toUpperCase();
-  }
-}
-
-// 应用头像到所有UI元素
-function applyAvatarToUI(avatar) {
-  // 顶栏头像按钮
-  const topbarUserAvatar = document.getElementById('topbar-user-avatar');
-  if (topbarUserAvatar) {
-    if (avatar.type === 'emoji' || avatar.type === 'icon') {
-      if (avatar.value === 'tg-plane') {
-        topbarUserAvatar.innerHTML = `
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="color: #0088cc;">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-          </svg>
-        `;
-      } else {
-        topbarUserAvatar.innerHTML = avatar.value;
-        // 渲染 Twemoji
-        if (typeof twemoji !== 'undefined') {
-          twemoji.parse(topbarUserAvatar, {
-            folder: 'svg',
-            ext: '.svg'
-          });
-        }
-      }
-    } else {
-      topbarUserAvatar.textContent = avatar.value.toUpperCase();
-    }
-  }
-
-  // 设置弹窗中的紧凑头像
-  const popoverCompactAvatar = document.getElementById('popover-compact-avatar');
-  if (popoverCompactAvatar) {
-    if (avatar.type === 'emoji' || avatar.type === 'icon') {
-      if (avatar.value === 'tg-plane') {
-        popoverCompactAvatar.innerHTML = `
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="color: #0088cc;">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-          </svg>
-        `;
-      } else {
-        popoverCompactAvatar.innerHTML = avatar.value;
-        // 渲染 Twemoji
-        if (typeof twemoji !== 'undefined') {
-          twemoji.parse(popoverCompactAvatar, {
-            folder: 'svg',
-            ext: '.svg'
-          });
-        }
-      }
-    } else {
-      popoverCompactAvatar.textContent = avatar.value.toUpperCase();
-    }
-  }
-}
 
 async function loadSecuritySessions() {
   const epoch = accountEpoch;
@@ -3807,27 +3931,6 @@ document.getElementById('registration-toggle').addEventListener('click', async (
   passwordInput.autocomplete = enabled ? 'new-password' : 'current-password';
   passwordInput.placeholder = enabled ? '至少 8 位，含大小写、数字和特殊字符' : '输入密码';
 });
-document.getElementById('registration-edit')?.addEventListener('click', async () => {
-  const button = document.getElementById('registration-edit');
-  if (!registrationChallenge || button.disabled || authBtn.disabled) return;
-  const challenge = registrationChallenge;
-  button.disabled = true;
-  authBtn.disabled = true;
-  try {
-    await cancelRegistrationChallenge(challenge);
-    registrationChallenge = null;
-    document.getElementById('registration-code').value = '';
-    document.getElementById('registration-email-hint').textContent = '';
-    setRegistrationMode(true);
-    authError.classList.add('hidden');
-    usernameInput.focus();
-  } catch (error) {
-    if (error.name !== 'AbortError') { authError.textContent = error.message || '无法修改注册资料，请稍后重试'; authError.classList.remove('hidden'); }
-  } finally {
-    button.disabled = false;
-    authBtn.disabled = false;
-  }
-});
 for (const id of ['username-input', 'password-input']) {
   document.getElementById(id).addEventListener('input', () => {
     if (!registrationMode) return;
@@ -3866,7 +3969,6 @@ async function registerAccount() {
     if (!registrationChallenge) {
       registrationChallenge = data.challenge;
       setRegistrationMode(true);
-      document.getElementById('registration-note').textContent = '邮箱和密码已锁定。输入收到的验证码即可创建账户。';
       document.getElementById('registration-email-hint').textContent = `验证码已发送至 ${data.emailHint}，5 分钟内有效。`;
       document.getElementById('registration-code').focus();
       authError.classList.add('hidden');
@@ -3874,8 +3976,9 @@ async function registerAccount() {
       registrationChallenge = null;
       resetAccountLogin();
       const result = document.getElementById('account-recovery-result');
-      result.textContent = '邮箱验证完成。若账户信息可用，账户已创建，请使用邮箱和密码登录。';
+      result.textContent = '注册成功，正在跳转到登录页面…';
       result.classList.remove('hidden');
+      showToast('注册成功，正在跳转到登录页面…');
     }
   } catch (error) {
     if (epoch === accountEpoch && error.name !== 'AbortError') { authError.textContent = error.message; authError.classList.remove('hidden'); }
@@ -4871,7 +4974,7 @@ function selectLoginMethod(method) {
   emailCodeTab.classList.toggle('active', method === 'email-code');
   passwordLoginArea.classList.toggle('hidden', method !== 'password');
   emailCodeLoginArea.classList.toggle('hidden', method !== 'email-code');
-  emailCodeHint.textContent = method === 'email-code' ? '邮箱二次验证账户请使用密码登录；启用身份验证器的账户仍需动态验证码。' : '';
+  emailCodeHint.textContent = '';
   authBtn.textContent = '登录';
 }
 passwordTab?.addEventListener('click', () => selectLoginMethod('password'));
@@ -4919,7 +5022,7 @@ if (sendEmailCodeBtn) {
         emailCodeCountdown = 60;
         updateEmailCodeCountdown();
       } else {
-        emailCodeHint.textContent = data.code === 'AUTH_FAILED' ? '无法使用验证码登录，请尝试密码登录；启用邮箱二次验证的账户需先验证密码' : accountErrorMessage(data, '发送失败，请稍后重试');
+        emailCodeHint.textContent = data.code === 'AUTH_FAILED' ? '无法使用邮箱验证码登录，请切换到密码登录。' : accountErrorMessage(data, '发送失败，请稍后重试');
         emailCodeHint.style.color = 'var(--danger)';
         sendEmailCodeBtn.disabled = false;
       }
@@ -5147,6 +5250,8 @@ socket.on('sync', (data) => {
 
   messages = data.messages;
   hasMoreMessages = Boolean(data.hasMore);
+  initialLoaded = true;
+  isInitialLoading = false;
   renderMessages({ scrollBottom: true });
 });
 

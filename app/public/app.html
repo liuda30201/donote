@@ -9,7 +9,7 @@
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2.1.0">
   <link rel="alternate icon" type="image/png" href="/logo.png?v=2.1.0">
-  <link rel="stylesheet" href="/style.css?v=2.1.8">
+  <link rel="stylesheet" href="/style.css?v=2.1.9">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#F5F5F7">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2.1.0">
@@ -32,6 +32,7 @@
     <!-- 未登录态：全屏居中认证页 -->
     <main id="auth-section" class="section auth-screen" aria-label="身份验证">
       <div class="auth-card">
+        <span id="registration-badge" class="registration-badge hidden" aria-hidden="true">注册</span>
         <a class="auth-back-btn" href="/" aria-label="返回首页">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M19 12H5M12 19l-7-7 7-7"/>
@@ -62,7 +63,7 @@
           <div id="password-login-area">
             <label for="password-input" class="auth-label">密码</label>
             <div class="password-field-wrapper">
-              <input type="password" id="password-input" placeholder="输入密码" autocomplete="current-password" aria-describedby="password-help">
+              <input type="password" id="password-input" placeholder="输入密码" autocomplete="current-password">
             <button type="button" id="toggle-password-btn" class="password-toggle-btn" title="显示或隐藏密码" aria-label="显示或隐藏密码" aria-pressed="false">
               <svg class="icon-eye" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
@@ -76,7 +77,6 @@
               </svg>
             </button>
           </div>
-          <p id="password-help" class="registration-note hidden">至少 8 位，包含大小写字母、数字和标点</p>
           </div>
 
           <!-- 邮箱验证码登录区域 -->
@@ -124,14 +124,10 @@
           <p id="account-recovery-result" class="hidden" role="status"></p>
           <button id="account-reset-btn" class="btn hidden" type="button">返回登录</button>
           <div id="registration-fields" class="hidden">
-            <p id="registration-note" class="registration-note">填写邮箱和密码，验证邮箱后即可登录</p>
             <div id="registration-code-fields" class="hidden">
               <label for="registration-code" class="auth-label">邮箱验证码</label>
               <input id="registration-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="输入验证码">
               <p id="registration-email-hint" class="registration-note" role="status"></p>
-              <div id="registration-challenge-actions" class="registration-actions hidden">
-                <button id="registration-edit" class="btn btn-secondary" type="button">修改邮箱或密码</button>
-              </div>
             </div>
           </div>
           <button id="auth-btn" class="btn btn-primary auth-submit-btn" type="button">登录</button>
@@ -403,8 +399,20 @@
           </div>
         </div>
 
+        <section class="group-quick-picker hidden" id="group-quick-picker" role="dialog" aria-labelledby="group-quick-picker-title" aria-label="分组快速选择">
+          <div class="group-quick-picker-heading">
+            <div>
+              <h2 id="group-quick-picker-title">选择分组</h2>
+            </div>
+            <button type="button" class="group-quick-picker-close" id="group-quick-picker-close" aria-label="关闭分组选择">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+          <div class="category-chips group-quick-options" id="category-chips" role="group" aria-label="可用分组"></div>
+        </section>
+
         <!-- 底部悬浮分类筛选胶囊 Dock -->
-        <nav class="paste-filter-bar floating-filter-dock" id="paste-filter-bar" aria-label="按内容类型筛选与新建">
+        <nav class="paste-filter-bar floating-filter-dock" id="paste-filter-bar" aria-label="按内容类型和分组筛选">
           <div class="paste-filter-inner">
             <button type="button" class="filter-chip active" data-filter="all">
               <span class="filter-dot filter-dot-all" aria-hidden="true"></span>
@@ -460,8 +468,10 @@
               <span>文件</span>
             </button>
 
-            <span class="dock-divider category-divider hidden" id="category-divider" aria-hidden="true"></span>
-            <div class="category-chips" id="category-chips" aria-label="按备注分类筛选"></div>
+            <button type="button" class="filter-chip group-toggle-chip hidden" id="group-toggle-button" aria-controls="group-quick-picker" aria-expanded="false" aria-pressed="false" title="打开分组筛选">
+              <span>group</span>
+              <svg class="group-toggle-chevron" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
 
             <span class="dock-divider" aria-hidden="true"></span>
 
@@ -796,13 +806,53 @@
       </div>
 
       <div class="avatar-editor-body">
-        <!-- 当前头像预览 -->
-        <div class="avatar-preview-section">
-          <div class="avatar-preview-large" id="avatar-preview-large">U</div>
-          <div class="avatar-preview-info">
-            <div class="avatar-preview-label">当前头像</div>
+        <div class="avatar-preview-custom-row">
+          <!-- 当前头像预览 -->
+          <div class="avatar-preview-section">
+            <div class="avatar-preview-large" id="avatar-preview-large">U</div>
+            <div class="avatar-preview-info">
+              <div class="avatar-preview-label">当前头像</div>
+            </div>
+          </div>
+
+          <!-- 自定义文字 -->
+          <div class="avatar-custom-section">
+            <h4 class="avatar-section-title">自定义文字（1个字符）</h4>
+            <div class="avatar-custom-input-wrapper">
+              <input type="text" id="avatar-custom-input" class="avatar-custom-input" maxlength="1" placeholder="字" autocomplete="off">
+              <button id="avatar-custom-preview" class="btn btn-secondary" type="button">预览</button>
+            </div>
           </div>
         </div>
+
+        <section class="avatar-upload-section" aria-labelledby="avatar-upload-title">
+          <div class="avatar-upload-heading">
+            <h4 id="avatar-upload-title" class="avatar-section-title">上传照片</h4>
+            <div class="avatar-upload-actions">
+              <button id="avatar-upload-trigger" class="btn btn-secondary" type="button">上传</button>
+              <input id="avatar-image-input" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" tabindex="-1" aria-label="选择头像照片">
+              <button id="avatar-remove" class="btn btn-secondary" type="button">重置</button>
+            </div>
+          </div>
+          <p id="avatar-upload-hint" class="avatar-custom-hint">支持 JPG、PNG、WebP、HEIC，最大 10 MB。图片只保存裁切后的头像。</p>
+          <div id="avatar-crop-panel" class="avatar-crop-panel hidden">
+            <div class="avatar-crop-stage" id="avatar-crop-stage">
+              <canvas id="avatar-crop-canvas" width="280" height="280" aria-label="头像裁切预览"></canvas>
+              <div class="avatar-crop-mask" aria-hidden="true"></div>
+            </div>
+            <p id="avatar-crop-filename" class="avatar-crop-filename"></p>
+            <label class="avatar-zoom-control" for="avatar-zoom">
+              <span>缩放</span>
+              <input id="avatar-zoom" type="range" min="1" max="3.5" step="0.01" value="1">
+            </label>
+            <div class="avatar-crop-actions">
+              <button id="avatar-rotate" class="btn btn-secondary" type="button">旋转 90°</button>
+              <button id="avatar-crop-reset" class="btn btn-secondary" type="button">重置</button>
+              <button id="avatar-crop-apply" class="btn btn-secondary" type="button">应用裁切</button>
+            </div>
+            <p id="avatar-crop-status" class="avatar-custom-hint" role="status">拖动照片调整位置，可缩放或旋转。</p>
+          </div>
+        </section>
 
         <!-- 预设图标选择 -->
         <div class="avatar-preset-section">
@@ -966,15 +1016,6 @@
           </div>
         </div>
 
-        <!-- 自定义文字 -->
-        <div class="avatar-custom-section">
-          <h4 class="avatar-section-title">自定义文字（1个字符）</h4>
-          <div class="avatar-custom-input-wrapper">
-            <input type="text" id="avatar-custom-input" class="avatar-custom-input" maxlength="1" placeholder="输入一个字" autocomplete="off">
-            <button id="avatar-custom-preview" class="btn btn-secondary" type="button">预览</button>
-          </div>
-          <p class="avatar-custom-hint">单字符 如 张 李 Z L</p>
-        </div>
       </div>
 
       <div class="avatar-editor-actions">
@@ -1430,7 +1471,7 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/highlight.js?v=2.1.0"></script>
-  <script src="/app.js?v=2.1.4"></script>
+  <script src="/app.js?v=2.1.9"></script>
 </body>
 
 </html>

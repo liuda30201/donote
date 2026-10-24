@@ -27,7 +27,7 @@ test('email-code login is available for password-only accounts with a verified e
  assert.equal(f.service.me(f.request({},logged.token)).user.id,f.user.id);
  assert.throws(()=>f.service.completeLogin(f.request({challenge:staged.challenge,code:f.sent.at(-1).code})));
 });
-test('email second factor requires password first; TOTP remains required after either login method',async t=>{
+test('email and TOTP second factors require password login first',async t=>{
  const f=await fixture(t);
  const emailLogin=await f.login();
  const binding=await f.email.startBind(f.write(emailLogin.token,{password:f.password,email:'second-factor@example.com'}));
@@ -47,9 +47,10 @@ test('email second factor requires password first; TOTP remains required after e
  f.repo.withTotpCounter({userId:totpUser.id,counter,enroll:true,at:f.now()},()=>true);
  f.repo.email.setPreference({userId:totpUser.id,method:'totp',email:'totp-first@example.com',at:f.now()});
  f.tick();
- const firstFactor=await f.service.login(f.request({email:'totp-first@example.com',loginMethod:'email-code'}));
- assert.equal(firstFactor.factorMethod,'email');
- const secondFactor=f.service.completeLogin(f.request({challenge:firstFactor.challenge,code:f.sent.at(-1).code}));
+ const sentBeforeTotpEmailLogin=f.sent.length;
+ await assert.rejects(f.service.login(f.request({email:'totp-first@example.com',loginMethod:'email-code'})),{code:'AUTH_FAILED'});
+ assert.equal(f.sent.length,sentBeforeTotpEmailLogin);
+ const secondFactor=await f.service.login(f.request({email:'totp-first@example.com',password:f.password}));
  assert.equal(secondFactor.requiresSecondFactor,true);
  assert.equal(secondFactor.factorMethod,'totp');
  const totp=f.service.completeLogin(f.request({challenge:secondFactor.challenge,code:p.generateTotp(secret,{now:f.now()})}));

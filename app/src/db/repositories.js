@@ -86,6 +86,15 @@ function createRepositories(db) {
       return updated.changes === 1 ? findUserById(userId) : null;
     });
   }
+  function setAvatar({ userId, avatar, at = Date.now() }) {
+    assertId(userId, 'userId');
+    if (avatar !== null && (!avatar || typeof avatar !== 'object' || Array.isArray(avatar))) throw new TypeError('avatar must be an object or null');
+    const avatarJson = avatar === null ? null : JSON.stringify(avatar);
+    return tx(() => {
+      const updated = db.prepare('UPDATE users SET avatar_json=?,updated_at=? WHERE id=? AND disabled_at IS NULL AND deleted_at IS NULL').run(avatarJson, at, userId);
+      return updated.changes === 1 ? findUserById(userId) : null;
+    });
+  }
   function countActiveAdmins() { return db.prepare("SELECT count(*) AS count FROM users WHERE role='admin' AND disabled_at IS NULL AND deleted_at IS NULL").get().count; }
   function revokeSessionsForUser(userId, at) { return db.prepare('UPDATE sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE user_id = ? AND revoked_at IS NULL').run(at, userId).changes; }
   function changePassword({ userId, passwordHash, mustChangePassword = false, at = Date.now() }) {
@@ -221,6 +230,6 @@ function createRepositories(db) {
       return {result};
     });
   }
-  return { email: require('./email-repository').createEmailRepository(db), createUser, listUsers, setStorageUsage, findMigrationAudit, findUserById, findUserByUsername, findUserByEmail, listActiveUserIds, countActiveAdmins, changePassword, setDisabled, setRole, createSession, findSessionByToken, findSessionById, activeSession, promoteSession, revokeSession, revokeOtherSessions, revokeAllSessions, listSessions, touchSession, createOperationGrant, withOperationGrant, createLoginChallenge, findLoginChallenge, recordChallengeFailure, expireFactorSetupChallenges, withLoginChallenge, addRecoveryCodes, consumeRecoveryCode, completeRecovery, getTotpCredential, setPendingTotp, withTotpCounter, setLoginPolicy, clearTotp, addAudit, listAudit };
+  return { email: require('./email-repository').createEmailRepository(db), createUser, listUsers, setStorageUsage, setAvatar, findMigrationAudit, findUserById, findUserByUsername, findUserByEmail, listActiveUserIds, countActiveAdmins, changePassword, setDisabled, setRole, createSession, findSessionByToken, findSessionById, activeSession, promoteSession, revokeSession, revokeOtherSessions, revokeAllSessions, listSessions, touchSession, createOperationGrant, withOperationGrant, createLoginChallenge, findLoginChallenge, recordChallengeFailure, expireFactorSetupChallenges, withLoginChallenge, addRecoveryCodes, consumeRecoveryCode, completeRecovery, getTotpCredential, setPendingTotp, withTotpCounter, setLoginPolicy, clearTotp, addAudit, listAudit };
 }
 module.exports = { createRepositories, hash };

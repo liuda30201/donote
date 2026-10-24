@@ -79,7 +79,46 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
     const expected = csrfFor(authenticated.token);
     if (!p.constantTimeEqual(supplied, expected) || crypto.createHash('sha256').update(expected).digest('hex') !== authenticated.session.csrf_hash) throw new AuthError(403, 'CSRF_REJECTED');
   }
-  function publicUser(user) { return { id: user.id, username: user.username, displayName: user.display_name, role: user.role }; }
+  const MAX_AVATAR_BYTES = 320 * 1024;
+  function defaultAvatar(user) {
+    return { type: 'text', value: String(user?.display_name || user?.username || 'U').trim().charAt(0).toUpperCase() || 'U' };
+  }
+  function validateAvatar(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input.type !== 'string' || typeof input.value !== 'string') throw new AuthError(400, 'INVALID_AVATAR', '头像格式无效');
+    const type = input.type.trim();
+    const value = input.value;
+    if (type === 'text') {
+      const chars = Array.from(value.trim());
+      if (chars.length !== 1 || /[\u0000-\u001f\u007f]/.test(chars[0])) throw new AuthError(400, 'INVALID_AVATAR', '头像格式无效');
+      return { type, value: chars[0] };
+    }
+    if (type === 'emoji') {
+      if (!value.trim() || Array.from(value).length > 8 || /[\u0000-\u001f\u007f]/.test(value)) throw new AuthError(400, 'INVALID_AVATAR', '头像格式无效');
+      return { type, value };
+    }
+    if (type === 'icon' && value === 'tg-plane') return { type, value };
+    if (type === 'image' && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value) && Buffer.byteLength(value, 'utf8') <= MAX_AVATAR_BYTES) {
+      const mime = value.slice(5, value.indexOf(';'));
+      const encoded = value.slice(value.indexOf(',') + 1);
+      try {
+        const bytes = Buffer.from(encoded, 'base64');
+        const validHeader = mime === 'image/jpeg'
+          ? bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+          : mime === 'image/png'
+            ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+            : bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+        if (bytes.toString('base64') === encoded && validHeader && bytes.length <= 240 * 1024) return { type, value };
+      } catch { /* Invalid image payloads fail closed. */ }
+    }
+    throw new AuthError(400, 'INVALID_AVATAR', '头像格式无效');
+  }
+  function storedAvatar(user) {
+    if (typeof user?.avatar_json === 'string' && user.avatar_json) {
+      try { return validateAvatar(JSON.parse(user.avatar_json)); } catch { /* Fall back to the account initial. */ }
+    }
+    return defaultAvatar(user);
+  }
+  function publicUser(user) { return { id: user.id, username: user.username, displayName: user.display_name, role: user.role, avatar: storedAvatar(user) }; }
   function makeSession(user, meta, req, strength) {
     const current = repo.findUserById(user.id);
     if (!current || current.security_version !== user.security_version || current.password_hash !== user.password_hash || current.disabled_at != null || current.deleted_at != null || current.must_change_password) throw fail();
@@ -110,13 +149,10 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
       if (!user || user.disabled_at != null || user.deleted_at != null) { audit('login.failed', user?.id, req); throw fail(); }
       const pref = repo.email.preference(user.id);
       const method = verificationMethod(user);
-      const factor = repo.getTotpCredential(user.id);
-      // Email-code login is a passwordless option only for password-only
-      // accounts. When email is configured as the account's second factor,
-      // requiring the password here prevents that factor from becoming the
-      // sole login credential. TOTP accounts may use email as the first
-      // factor, then must complete the TOTP challenge below.
-      if (!pref?.email_verified_at || !emailVerification || method === 'email' || (method === 'totp' && factor?.enabled_at == null)) throw fail();
+      // Email-code login is passwordless, so it is available only to
+      // password-only accounts. Email-factor and TOTP accounts must start
+      // with their password and then complete the configured second factor.
+      if (!pref?.email_verified_at || !emailVerification || method === 'email' || method === 'totp') throw fail();
       const meta = { ephemeral: body.ephemeral === true, deviceLabel: typeof body.deviceLabel === 'string' ? body.deviceLabel.slice(0, 128) : 'Browser' };
       const staged = await emailVerification.send(req, { user, email: pref.email, purpose: 'email-code-login', target: meta });
       return { ...staged, requiresSecondFactor: true, factorMethod: 'email', emailHint: pref.email };
@@ -327,6 +363,15 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
     const authenticated = authenticateRequest(req);
     return { requiresFactorSetup: needsFactorSetup(authenticated.user), optionalFactorSetup, user: publicUser(authenticated.user), sessionId: authenticated.session.id, expiresAt: authenticated.session.expires_at, idleExpiresAt: authenticated.session.idle_expires_at, csrfToken: csrfFor(authenticated.token) };
   }
+  function updateAvatar(req) {
+    const authenticated = authenticateRequest(req);
+    requireCsrf(req, authenticated);
+    const body = req.body || {};
+    const avatar = body.avatar === null ? null : validateAvatar(body.avatar);
+    const updated = repo.setAvatar({ userId: authenticated.user.id, avatar, at: now() });
+    if (!updated) throw fail();
+    return { success: true, user: publicUser(updated), avatar: storedAvatar(updated) };
+  }
   function logout(req) {
     req.allowFactorSetup = true;
     const authenticated = authenticateRequest(req); requireCsrf(req, authenticated);
@@ -335,6 +380,6 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
     return authenticated.context;
   }
   function cookieOptions(ephemeral, expiresAt) { return { httpOnly: true, secure: secureCookies, sameSite: 'lax', path: '/', ...(ephemeral ? {} : { maxAge: Math.max(0, expiresAt - now()) }) }; }
-  return { verificationMethod, verifyPassword: passwordWork, keyId, setEmailVerification(service) { emailVerification=service; }, get emailVerification() { return emailVerification; }, login, completeLogin, startSetup, completeSetup, startPostLoginSetup, completePostLoginSetup, skipPostLoginSetup, startRecovery, me, logout, authenticateRequest, requireCsrf, requireOrigin: origin, cookieName, cookieOptions };
+  return { verificationMethod, verifyPassword: passwordWork, keyId, setEmailVerification(service) { emailVerification=service; }, get emailVerification() { return emailVerification; }, login, completeLogin, startSetup, completeSetup, startPostLoginSetup, completePostLoginSetup, skipPostLoginSetup, startRecovery, me, updateAvatar, logout, authenticateRequest, requireCsrf, requireOrigin: origin, cookieName, cookieOptions };
 }
 module.exports = { createAuthService, AuthError };
