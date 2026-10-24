@@ -90,6 +90,13 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
     audit('login.succeeded', user.id, req, { actorSessionId: row.id, authStrength: strength });
     return { token, session: row, user: publicUser(current), ephemeral: meta.ephemeral };
   }
+  function createTotpLoginChallenge(user, meta) {
+    const challenge = p.generateToken();
+    const targetId = JSON.stringify(meta);
+    const at = now();
+    if (!repo.createLoginChallenge({ userId: user.id, challenge, kind: 'login', targetId, createdAt: at, expiresAt: at + 300000 })) throw fail();
+    return { challenge, requiresSecondFactor: true, factorMethod: 'totp', expiresAt: at + 300000 };
+  }
   async function login(req) {
     origin(req);
     const body = req.body || {};
@@ -102,7 +109,14 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
       try { user = repo.findUserByEmail(identifier); } catch { /* Invalid identifiers follow the same password path. */ }
       if (!user || user.disabled_at != null || user.deleted_at != null) { audit('login.failed', user?.id, req); throw fail(); }
       const pref = repo.email.preference(user.id);
-      if (!pref?.email_verified_at || !emailVerification || verificationMethod(user) === 'totp') throw fail();
+      const method = verificationMethod(user);
+      const factor = repo.getTotpCredential(user.id);
+      // Email-code login is a passwordless option only for password-only
+      // accounts. When email is configured as the account's second factor,
+      // requiring the password here prevents that factor from becoming the
+      // sole login credential. TOTP accounts may use email as the first
+      // factor, then must complete the TOTP challenge below.
+      if (!pref?.email_verified_at || !emailVerification || method === 'email' || (method === 'totp' && factor?.enabled_at == null)) throw fail();
       const meta = { ephemeral: body.ephemeral === true, deviceLabel: typeof body.deviceLabel === 'string' ? body.deviceLabel.slice(0, 128) : 'Browser' };
       const staged = await emailVerification.send(req, { user, email: pref.email, purpose: 'email-code-login', target: meta });
       return { ...staged, requiresSecondFactor: true, factorMethod: 'email', emailHint: pref.email };
@@ -125,10 +139,7 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
       return { ...staged, requiresSecondFactor:true, factorMethod:'email' };
     }
     if (method === 'totp' && factor?.enabled_at != null) {
-      const challenge = p.generateToken();
-      const targetId = JSON.stringify(meta); const at = now();
-      if (!repo.createLoginChallenge({ userId: user.id, challenge, kind: 'login', targetId, createdAt: at, expiresAt: at + 300000 })) throw fail();
-      return { challenge, requiresSecondFactor: true, expiresAt: at + 300000 };
+      return createTotpLoginChallenge(user, meta);
     }
     if (user.must_change_password) return setupChallenge(user, { meta, requirePassword: true, requireFactor: !postLoginFactorSetup && (user.role === 'admin' || user.login_policy === 'strict'), mode: 'initialization' });
     if (method === 'totp') {
@@ -147,8 +158,12 @@ function createAuthService({ repo, allowedOrigins, encryptionKey, keyId, secureC
       limit(req,`factor:${emailRow.user_id}`);
       return emailVerification.consume(body.challenge,body.code,{purpose:['login','email-code-login']},row=>{
         const user=repo.findUserById(row.user_id);
-        if(!user || (row.purpose==='login'&&verificationMethod(user)!=='email') || (row.purpose==='email-code-login'&&verificationMethod(user)==='totp'))throw fail();
+        if(!user || (row.purpose==='login'&&verificationMethod(user)!=='email') || (row.purpose==='email-code-login'&&verificationMethod(user)==='email'))throw fail();
         const meta=parseObject(row.target);
+        const method = verificationMethod(user);
+        const factor = repo.getTotpCredential(user.id);
+        if (row.purpose === 'email-code-login' && (method === 'email' || (method === 'totp' && factor?.enabled_at == null))) throw fail();
+        if (row.purpose === 'email-code-login' && method === 'totp') return createTotpLoginChallenge(user, meta);
         if(user.must_change_password)return setupChallenge(user,{meta,requirePassword:true,requireFactor:false,mode:'password-change'});
         // Email verification is stored separately as a session/user/security-version proof.
         // Keep the schema's password strength; a proof never grants TOTP/admin privileges.

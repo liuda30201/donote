@@ -2639,6 +2639,17 @@ function checkAuth() {
 
 function setRegistrationMode(enabled) {
   registrationMode = Boolean(enabled);
+  // Registration is a separate flow. Do not leave the login-method tabs or
+  // an email-code login challenge active underneath it.
+  document.getElementById('auth-method-tabs')?.classList.toggle('hidden', registrationMode);
+  if (registrationMode) {
+    currentLoginMethod = 'password';
+    passwordTab?.classList.add('active');
+    emailCodeTab?.classList.remove('active');
+    passwordLoginArea?.classList.remove('hidden');
+    emailCodeLoginArea?.classList.add('hidden');
+    emailCodeChallenge = null;
+  }
   document.getElementById('registration-fields')?.classList.toggle('hidden', !registrationMode);
   document.getElementById('registration-toggle')?.classList.toggle('hidden', !registrationAvailable);
   document.getElementById('registration-toggle').textContent = registrationMode ? '返回登录' : '注册';
@@ -2646,6 +2657,7 @@ function setRegistrationMode(enabled) {
   document.getElementById('username-label')?.classList.remove('hidden');
   document.getElementById('username-input')?.classList.remove('hidden');
   document.getElementById('password-help')?.classList.toggle('hidden', !registrationMode);
+  passwordInput.required = registrationMode;
   document.getElementById('account-advanced')?.classList.add('hidden');
   document.getElementById('account-reset-btn')?.classList.add('hidden');
   document.getElementById('account-factor-fields')?.classList.add('hidden');
@@ -2653,8 +2665,20 @@ function setRegistrationMode(enabled) {
     registrationChallenge = null;
     document.getElementById('registration-code-fields')?.classList.add('hidden');
     document.getElementById('registration-code').value = '';
+    document.getElementById('registration-code').required = false;
+    document.getElementById('registration-challenge-actions')?.classList.add('hidden');
+    document.getElementById('registration-note').textContent = '填写邮箱和密码，验证邮箱后即可登录';
   } else {
     document.getElementById('registration-code-fields')?.classList.toggle('hidden', !registrationChallenge);
+    document.getElementById('registration-challenge-actions')?.classList.toggle('hidden', !registrationChallenge);
+    document.getElementById('registration-code').required = Boolean(registrationChallenge);
+    const locked = Boolean(registrationChallenge);
+    document.getElementById('registration-note').textContent = locked
+      ? '邮箱和密码已锁定。输入收到的验证码即可创建账户。'
+      : '填写邮箱和密码，点击发送验证码；验证成功后即可登录。';
+    document.getElementById('username-input').disabled = locked;
+    document.getElementById('password-input').disabled = locked;
+    document.getElementById('registration-code').disabled = false;
   }
 }
 function configureAccountLogin() {
@@ -2669,6 +2693,8 @@ function configureAccountLogin() {
   document.querySelector('.login-duration-container')?.classList.add('hidden');
   for (const key of ['web-clipboard-password', 'web-clipboard-user-id', 'web-clipboard-login-expires', 'web-clipboard-cached-messages', 'web-clipboard-cached-favorites']) localStorage.removeItem(key);
   setRegistrationMode(false);
+  const registrationToggle = document.getElementById('registration-toggle');
+  if (registrationToggle) registrationToggle.disabled = false;
   clearProxyAuthCookie();
 }
 let enrollmentPending = false;
@@ -3175,7 +3201,38 @@ async function loadOlderMessages() {
 function accountIdentifierPayload(identifier) {
   return { email: identifier };
 }
+function accountErrorMessage(data, fallback = '操作未完成，请稍后重试') {
+  if (data?.code === 'AUTH_FAILED') {
+    if (registrationMode) return '验证码错误或已过期；请检查后重试，过期时可修改资料后重新发送。';
+    if (accountStage === 'mfa') {
+      const emailFactor = document.getElementById('account-code-label')?.textContent === '邮箱验证码';
+      return emailFactor ? '邮箱验证码错误或已过期，请检查后重试。' : '动态验证码无效或已过期，请输入最新验证码。';
+    }
+    return '邮箱或密码错误，或验证码已失效，请检查后重试。';
+  }
+  const messages = {
+    AUTH_RATE_LIMIT: '请求过于频繁，请稍后重试',
+    EMAIL_RATE_LIMIT: '验证码发送过于频繁，请稍后再试',
+    MAIL_UNAVAILABLE: '邮件服务暂不可用，请稍后重试',
+    REGISTRATION_RATE_LIMIT: '注册请求过于频繁，请稍后重试',
+    TOTP_SETUP_REQUIRED: '请先完成身份验证器绑定',
+    AUTH_BUSY: '服务繁忙，请稍后重试'
+  };
+  return messages[data?.code] || data?.error || data?.message || fallback;
+}
+async function cancelRegistrationChallenge(challenge) {
+  const response = await sessionFetch('/api/auth/register/cancel', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ challenge })
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(accountErrorMessage(data, '无法取消注册验证码，请稍后重试'));
+}
 function showAccountFactorStep({ requirePassword = false, requireFactor = true, email = false, recovery = false } = {}) {
+  document.getElementById('auth-method-tabs')?.classList.add('hidden');
+  passwordLoginArea?.classList.add('hidden');
+  emailCodeLoginArea?.classList.add('hidden');
   document.getElementById('account-factor-fields').classList.remove('hidden');
   document.getElementById('account-reset-btn').classList.remove('hidden');
   document.getElementById('account-advanced').classList.toggle('hidden', !recovery);
@@ -3191,10 +3248,23 @@ function showAccountFactorStep({ requirePassword = false, requireFactor = true, 
   authBtn.textContent = '完成验证';
   (requirePassword ? verificationField('account-new-password') : verificationField('account-code')).focus();
 }
+function clearEmailCodeLoginState(hint = '') {
+  emailCodeChallenge = null;
+  emailLoginCode.value = '';
+  emailCodeCountdown = 0;
+  if (emailCodeTimer) clearTimeout(emailCodeTimer);
+  emailCodeTimer = null;
+  if (sendEmailCodeBtn) { sendEmailCodeBtn.disabled = false; sendEmailCodeBtn.textContent = '发送验证码'; }
+  if (emailCodeHint) { emailCodeHint.textContent = hint; emailCodeHint.style.color = ''; }
+}
 function resetAccountLogin(preserveSelfSecurityOp = false) {
   if (preserveSelfSecurityOp !== true) cancelSelfSecurityDelivery();
   clearEnrollment(); enrollmentPending = false;
   accountEpoch += 1; accountStage = 'login'; accountChallenge = null;
+  clearEmailCodeLoginState();
+  currentLoginMethod = 'password';
+  passwordTab?.classList.add('active'); emailCodeTab?.classList.remove('active');
+  passwordLoginArea?.classList.remove('hidden'); emailCodeLoginArea?.classList.add('hidden');
   setRegistrationMode(false);
   for (const id of ['username-input', 'password-input', 'registration-code']) document.getElementById(id).disabled = false;
   document.getElementById('registration-code').value = '';
@@ -3715,16 +3785,53 @@ document.getElementById('security-revoke-all')?.addEventListener('click', () => 
 document.getElementById('registration-code').addEventListener('keydown', event => {
   if (event.key === 'Enter' && registrationMode) { event.preventDefault(); registerAccount(); }
 });
-document.getElementById('registration-toggle').addEventListener('click', () => {
+document.getElementById('registration-toggle').addEventListener('click', async () => {
   const enabled = !registrationMode;
+  if (registrationMode && registrationChallenge) {
+    const button = document.getElementById('registration-toggle');
+    button.disabled = true;
+    authBtn.disabled = true;
+    try {
+      await cancelRegistrationChallenge(registrationChallenge);
+    } catch (error) {
+      if (error.name !== 'AbortError') { authError.textContent = error.message || '无法取消注册验证码，请稍后重试'; authError.classList.remove('hidden'); }
+      button.disabled = false;
+      authBtn.disabled = false;
+      return;
+    }
+    button.disabled = false;
+    authBtn.disabled = false;
+  }
   resetAccountLogin();
   setRegistrationMode(enabled);
   passwordInput.autocomplete = enabled ? 'new-password' : 'current-password';
   passwordInput.placeholder = enabled ? '至少 8 位，含大小写、数字和特殊字符' : '输入密码';
 });
+document.getElementById('registration-edit')?.addEventListener('click', async () => {
+  const button = document.getElementById('registration-edit');
+  if (!registrationChallenge || button.disabled || authBtn.disabled) return;
+  const challenge = registrationChallenge;
+  button.disabled = true;
+  authBtn.disabled = true;
+  try {
+    await cancelRegistrationChallenge(challenge);
+    registrationChallenge = null;
+    document.getElementById('registration-code').value = '';
+    document.getElementById('registration-email-hint').textContent = '';
+    setRegistrationMode(true);
+    authError.classList.add('hidden');
+    usernameInput.focus();
+  } catch (error) {
+    if (error.name !== 'AbortError') { authError.textContent = error.message || '无法修改注册资料，请稍后重试'; authError.classList.remove('hidden'); }
+  } finally {
+    button.disabled = false;
+    authBtn.disabled = false;
+  }
+});
 for (const id of ['username-input', 'password-input']) {
   document.getElementById(id).addEventListener('input', () => {
     if (!registrationMode) return;
+    if (registrationChallenge) return;
     registrationChallenge = null;
     setRegistrationMode(true);
   });
@@ -3733,11 +3840,19 @@ async function registerAccount() {
   const epoch = accountEpoch;
   if (authBtn.disabled) return;
   const email = document.getElementById('username-input');
-  if (!registrationChallenge && (!email.value.trim() || !email.reportValidity())) return;
+  if (!registrationChallenge) {
+    if (!email.value.trim() || !email.reportValidity()) return;
+    if (!passwordInput.value || !passwordInput.reportValidity()) {
+      passwordInput.focus();
+      return;
+    }
+  }
   const body = registrationChallenge
     ? { challenge: registrationChallenge, code: document.getElementById('registration-code').value.trim() }
     : { password: passwordInput.value, email: email.value.trim() };
   authBtn.disabled = true;
+  const registrationToggle = document.getElementById('registration-toggle');
+  if (registrationToggle) registrationToggle.disabled = true;
   const fields = ['password-input', 'username-input', 'registration-code'].map(id => document.getElementById(id));
   fields.forEach(field => { field.disabled = true; });
   try {
@@ -3745,17 +3860,18 @@ async function registerAccount() {
     const data = await response.json();
     if (epoch !== accountEpoch) return;
     if (!response.ok) {
-      const errors = { PASSWORD_POLICY: '密码至少需要 8 位，并包含大写字母、小写字母、数字和 ASCII 标点，且不能包含邮箱前缀', INVALID_REGISTRATION: '注册信息无效，请检查邮箱和密码', INVALID_EMAIL: '请输入有效邮箱', MAIL_UNAVAILABLE: '邮件服务暂不可用，请稍后重试', REGISTRATION_RATE_LIMIT: '发送过于频繁，请至少一分钟后重试', AUTH_RATE_LIMIT: '请求过于频繁，请稍后重试', AUTH_BUSY: '服务繁忙，请稍后重试', AUTH_FAILED: '验证码无效或已过期，请返回登录后重新注册' };
-      throw new Error(errors[data.code] || '注册未完成，请稍后重试');
+      const errors = { PASSWORD_POLICY: '密码至少需要 8 位，并包含大写字母、小写字母、数字和 ASCII 标点，且不能包含邮箱前缀', INVALID_REGISTRATION: '注册信息无效，请检查邮箱和密码', INVALID_EMAIL: '请输入有效邮箱' };
+      throw new Error(errors[data.code] || accountErrorMessage(data, '注册未完成，请稍后重试'));
     }
     if (!registrationChallenge) {
       registrationChallenge = data.challenge;
-      passwordInput.value = '';
       setRegistrationMode(true);
+      document.getElementById('registration-note').textContent = '邮箱和密码已锁定。输入收到的验证码即可创建账户。';
       document.getElementById('registration-email-hint').textContent = `验证码已发送至 ${data.emailHint}，5 分钟内有效。`;
       document.getElementById('registration-code').focus();
       authError.classList.add('hidden');
     } else {
+      registrationChallenge = null;
       resetAccountLogin();
       const result = document.getElementById('account-recovery-result');
       result.textContent = '邮箱验证完成。若账户信息可用，账户已创建，请使用邮箱和密码登录。';
@@ -3766,7 +3882,8 @@ async function registerAccount() {
   } finally {
     if (epoch === accountEpoch) {
       authBtn.disabled = false;
-      fields.forEach(field => { field.disabled = false; });
+      if (registrationToggle) registrationToggle.disabled = false;
+      fields.forEach(field => { field.disabled = Boolean(registrationChallenge) && field.id !== 'registration-code'; });
       if (registrationChallenge) document.getElementById('registration-code').focus();
     }
   }
@@ -3780,117 +3897,30 @@ async function verifyAccount() {
   const password = passwordInput?.value || '';
   const code = document.getElementById('account-code')?.value.trim();
 
-  // 邮箱验证码登录处理
-  if (currentLoginMethod === 'email-code' && !accountChallenge) {
-    if (!identifier || !usernameInput.reportValidity()) return;
-    if (!identifier.includes('@')) {
-      authError.textContent = '请输入有效的邮箱地址';
-      authError.classList.remove('hidden');
-      return;
-    }
-
-    authBtn.disabled = true;
-    authError.classList.add('hidden');
-
-    try {
-      const response = await sessionFetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          email: identifier,
-          loginMethod: 'email-code',
-          ephemeral: document.getElementById('login-duration-select')?.value === 'ephemeral',
-          deviceLabel: 'Browser'
-        })
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.requiresSecondFactor) {
-        emailCodeChallenge = data.challenge;
-        emailCodeHint.textContent = `验证码已发送至 ${data.emailHint || identifier}`;
-        emailCodeHint.style.color = 'var(--success)';
-        emailLoginCode.focus();
-      } else {
-        authError.textContent = data.message || '发送验证码失败';
-        authError.classList.remove('hidden');
-      }
-    } catch (error) {
-      authError.textContent = error.message || '网络错误';
-      authError.classList.remove('hidden');
-    } finally {
-      authBtn.disabled = false;
-    }
+  if (currentLoginMethod === 'email-code' && !accountChallenge && !emailCodeChallenge) {
+    authError.textContent = '请先发送并填写邮箱验证码';
+    authError.classList.remove('hidden');
     return;
   }
-
-  // 邮箱验证码二次验证
-  if (currentLoginMethod === 'email-code' && emailCodeChallenge) {
-    const emailCode = emailLoginCode?.value.trim();
-    if (!emailCode || emailCode.length !== 6) {
-      authError.textContent = '请输入6位验证码';
-      authError.classList.remove('hidden');
-      return;
-    }
-
-    authBtn.disabled = true;
-    authError.classList.add('hidden');
-
-    try {
-      const response = await sessionFetch('/api/auth/login/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ challenge: emailCodeChallenge, code: emailCode })
-      });
-
-      const data = await response.json();
-      if (epoch !== accountEpoch) return;
-
-      if (response.ok) {
-        emailCodeChallenge = null;
-        if (emailLoginCode) emailLoginCode.value = '';
-        const me = await sessionFetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' }).then(r => r.json());
-        if (epoch !== accountEpoch) return;
-        accountUser = me.user;
-        accountSessionId = me.sessionId || null;
-        userId = me.user?.id || null;
-        accountCsrfToken = me.csrfToken || null;
-        enrollmentPending = Boolean(me.requiresFactorSetup);
-        enrollmentOptional = Boolean(me.optionalFactorSetup);
-        enterChatMode();
-        return;
-      } else {
-        authError.textContent = data.error || data.message || '验证码错误';
-        authError.classList.remove('hidden');
-      }
-    } catch (error) {
-      if (epoch === accountEpoch && error.name !== 'AbortError') {
-        authError.textContent = error.message || '验证失败';
-        authError.classList.remove('hidden');
-      }
-    } finally {
-      if (epoch === accountEpoch) authBtn.disabled = false;
-    }
-    return;
-  }
-
+  const emailLogin = currentLoginMethod === 'email-code' && !accountChallenge;
   // 原有密码登录逻辑
   if (!accountChallenge && (!identifier || !usernameInput.reportValidity())) return;
-  const body = accountChallenge ? { challenge: accountChallenge } : { ...accountIdentifierPayload(identifier), password };
+  const body = accountChallenge ? { challenge: accountChallenge } : emailLogin ? { challenge: emailCodeChallenge, code: emailLoginCode.value.trim() } : { ...accountIdentifierPayload(identifier), password };
+  if ((emailLogin || accountStage === 'mfa') && !/^[0-9]{6}$/.test(body.code || code || '')) { authError.textContent = '请输入六位数字验证码'; authError.classList.remove('hidden'); return; }
   if (accountChallenge) { body.code = code; body.newPassword = document.getElementById('account-new-password')?.value || ''; }
   if (accountStage === 'setup' && !verificationField('account-new-password').classList.contains('hidden') && (body.newPassword.length < 8 || new TextEncoder().encode(body.newPassword).length > 1024)) {
     authError.textContent = '新密码至少需要 8 位，并包含大写字母、小写字母、数字和特殊字符'; authError.classList.remove('hidden'); return;
   }
-  const route = accountChallenge ? (accountStage === 'mfa' ? '/api/auth/login/verify' : '/api/auth/setup/complete') : '/api/auth/login';
+  const route = accountChallenge ? (accountStage === 'mfa' ? '/api/auth/login/verify' : '/api/auth/setup/complete') : emailLogin ? '/api/auth/login/verify' : '/api/auth/login';
   const resultEl = document.getElementById('account-recovery-result'); if (resultEl) { resultEl.textContent = ''; resultEl.classList.add('hidden'); }
   authBtn.disabled = true;
   try {
     const response = await sessionFetch(route, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Origin: location.origin }, body: JSON.stringify(body), cache: 'no-store' });
     const data = await response.json();
     if (epoch !== accountEpoch) return;
-    if (!response.ok) throw new Error(data.error || '登录失败');
+    if (!response.ok) throw new Error(data.code === 'AUTH_FAILED' && !accountChallenge && !emailLogin ? '邮箱或密码错误，请重新输入' : accountErrorMessage(data, '登录失败'));
+    emailCodeChallenge = null; emailLoginCode.value = '';
+    document.getElementById('account-code').value = '';
     if (data.requiresSetup) {
       accountStage = 'setup'; accountChallenge = data.challenge;
       showAccountFactorStep({ requirePassword: Boolean(data.requirePassword), requireFactor: Boolean(data.requireFactor) });
@@ -4832,44 +4862,36 @@ passwordInput.addEventListener('input', () => {
   authError.classList.add('hidden');
 });
 
-// 登录方式切换
-if (passwordTab && emailCodeTab) {
-  passwordTab.addEventListener('click', () => {
-    if (currentLoginMethod === 'password') return;
-    currentLoginMethod = 'password';
-    passwordTab.classList.add('active');
-    emailCodeTab.classList.remove('active');
-    passwordLoginArea.classList.remove('hidden');
-    emailCodeLoginArea.classList.add('hidden');
-    authError.classList.add('hidden');
-    emailCodeChallenge = null;
-    authBtn.textContent = '登录';
-  });
-
-  emailCodeTab.addEventListener('click', () => {
-    if (currentLoginMethod === 'email-code') return;
-    currentLoginMethod = 'email-code';
-    emailCodeTab.classList.add('active');
-    passwordTab.classList.remove('active');
-    emailCodeLoginArea.classList.remove('hidden');
-    passwordLoginArea.classList.add('hidden');
-    authError.classList.add('hidden');
-    emailCodeChallenge = null;
-    authBtn.textContent = '发送验证码';
-  });
+// Switching methods always starts a fresh login flow.
+function selectLoginMethod(method) {
+  if (method === currentLoginMethod && accountStage === 'login') return;
+  resetAccountLogin();
+  currentLoginMethod = method;
+  passwordTab.classList.toggle('active', method === 'password');
+  emailCodeTab.classList.toggle('active', method === 'email-code');
+  passwordLoginArea.classList.toggle('hidden', method !== 'password');
+  emailCodeLoginArea.classList.toggle('hidden', method !== 'email-code');
+  emailCodeHint.textContent = method === 'email-code' ? '邮箱二次验证账户请使用密码登录；启用身份验证器的账户仍需动态验证码。' : '';
+  authBtn.textContent = '登录';
 }
+passwordTab?.addEventListener('click', () => selectLoginMethod('password'));
+emailCodeTab?.addEventListener('click', () => selectLoginMethod('email-code'));
 
 // 发送邮箱验证码
 if (sendEmailCodeBtn) {
   sendEmailCodeBtn.addEventListener('click', async () => {
+    if (currentMode !== 'accounts' || registrationMode || accountChallenge || sendEmailCodeBtn.disabled || authBtn.disabled) return;
+    const epoch = accountEpoch;
     const email = usernameInput?.value.trim();
-    if (!email || !email.includes('@')) {
+    if (!email || !usernameInput.reportValidity()) {
       emailCodeHint.textContent = '请输入有效的邮箱地址';
       emailCodeHint.style.color = 'var(--danger)';
       return;
     }
 
     sendEmailCodeBtn.disabled = true;
+    authBtn.disabled = true;
+    usernameInput.disabled = true;
     emailCodeHint.textContent = '正在发送验证码...';
     emailCodeHint.style.color = 'var(--text-muted)';
 
@@ -4888,6 +4910,7 @@ if (sendEmailCodeBtn) {
 
       const data = await response.json();
 
+      if (epoch !== accountEpoch || usernameInput.value.trim().toLowerCase() !== email.toLowerCase()) return;
       if (response.ok && data.requiresSecondFactor) {
         emailCodeChallenge = data.challenge;
         emailCodeHint.textContent = `验证码已发送至 ${data.emailHint || email}`;
@@ -4896,14 +4919,17 @@ if (sendEmailCodeBtn) {
         emailCodeCountdown = 60;
         updateEmailCodeCountdown();
       } else {
-        emailCodeHint.textContent = data.message || '发送失败，请稍后重试';
+        emailCodeHint.textContent = data.code === 'AUTH_FAILED' ? '无法使用验证码登录，请尝试密码登录；启用邮箱二次验证的账户需先验证密码' : accountErrorMessage(data, '发送失败，请稍后重试');
         emailCodeHint.style.color = 'var(--danger)';
         sendEmailCodeBtn.disabled = false;
       }
     } catch (error) {
+      if (epoch !== accountEpoch) return;
       emailCodeHint.textContent = '网络错误，请检查连接';
       emailCodeHint.style.color = 'var(--danger)';
       sendEmailCodeBtn.disabled = false;
+    } finally {
+      if (epoch === accountEpoch) { authBtn.disabled = false; usernameInput.disabled = false; }
     }
   });
 }
@@ -4912,6 +4938,7 @@ function updateEmailCodeCountdown() {
   if (emailCodeCountdown > 0) {
     sendEmailCodeBtn.textContent = `${emailCodeCountdown}s 后重发`;
     emailCodeCountdown--;
+    if (emailCodeTimer) clearTimeout(emailCodeTimer);
     emailCodeTimer = setTimeout(updateEmailCodeCountdown, 1000);
   } else {
     sendEmailCodeBtn.textContent = '发送验证码';
@@ -4921,6 +4948,11 @@ function updateEmailCodeCountdown() {
 }
 
 if (usernameInput) {
+  usernameInput.addEventListener('input', () => {
+    if (!registrationMode && !accountChallenge && currentLoginMethod === 'email-code') {
+      clearEmailCodeLoginState('邮箱地址已修改，请重新发送验证码。');
+    }
+  });
   usernameInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && currentMode === 'accounts') {
       e.preventDefault();

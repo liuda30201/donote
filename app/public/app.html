@@ -124,11 +124,14 @@
           <p id="account-recovery-result" class="hidden" role="status"></p>
           <button id="account-reset-btn" class="btn hidden" type="button">返回登录</button>
           <div id="registration-fields" class="hidden">
-            <p class="registration-note">注册需验证邮箱，完成后可直接登录</p>
+            <p id="registration-note" class="registration-note">填写邮箱和密码，验证邮箱后即可登录</p>
             <div id="registration-code-fields" class="hidden">
               <label for="registration-code" class="auth-label">邮箱验证码</label>
               <input id="registration-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="输入验证码">
               <p id="registration-email-hint" class="registration-note" role="status"></p>
+              <div id="registration-challenge-actions" class="registration-actions hidden">
+                <button id="registration-edit" class="btn btn-secondary" type="button">修改邮箱或密码</button>
+              </div>
             </div>
           </div>
           <button id="auth-btn" class="btn btn-primary auth-submit-btn" type="button">登录</button>

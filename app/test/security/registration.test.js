@@ -57,6 +57,20 @@ test('registration enforces origin, password policy, expiry, five malformed atte
   await assert.rejects(f.email.startRegistration(f.req(f.body)), { code: 'MAIL_UNAVAILABLE' });
   assert.equal(f.repo.findUserByEmail(f.body.email), null);
 });
+test('registration challenges can be cancelled before editing credentials', async t => {
+  const f = await fixture(t);
+  const staged = await f.email.startRegistration(f.req(f.body));
+  assert.ok(f.repo.email.findRegistration(staged.challenge, staged.expiresAt - 1));
+  assert.deepEqual(f.email.cancelRegistration(f.req({ challenge: staged.challenge })), { success: true });
+  assert.equal(f.repo.email.findRegistration(staged.challenge, staged.expiresAt - 1), null);
+  assert.throws(() => f.email.completeRegistration(f.req({ challenge: staged.challenge, code: f.sent[0].code })), { code: 'AUTH_FAILED' });
+  const replacement = await f.email.startRegistration(f.req({ ...f.body, password: 'Changed-password-2026!' }));
+  assert.throws(() => f.email.completeRegistration(f.req({ challenge: staged.challenge, code: f.sent[0].code })), { code: 'AUTH_FAILED' });
+  assert.equal(f.email.completeRegistration(f.req({ challenge: replacement.challenge, code: f.sent.at(-1).code })).success, true);
+  const signedIn = await f.service.login(f.req({ email: f.body.email, password: 'Changed-password-2026!' }));
+  assert.ok(signedIn.token);
+  await assert.rejects(f.service.login(f.req({ email: f.body.email, password: f.body.password })));
+});
 test('duplicate identity is generic, cannot replace passwords, and concurrent starts are bounded', async t => {
   const f = await fixture(t);
   const first = await f.email.startRegistration(f.req(f.body));
@@ -99,7 +113,13 @@ test('registration HTTP status, JSON, origin and cookie boundaries', async t => 
   const start = await post('/register/start', f.body);
   assert.equal(start.headers.get('set-cookie'), null);
   const staged = await start.json();
-  const confirm = await post('/register/confirm', { challenge: staged.challenge, code: f.sent[0].code });
+  const cancelled = await post('/register/cancel', { challenge: staged.challenge });
+  assert.equal(cancelled.status, 200);
+  assert.equal((await cancelled.json()).success, true);
+  assert.equal((await post('/register/confirm', { challenge: staged.challenge, code: f.sent[0].code })).status, 401);
+  const replacementResponse = await post('/register/start', f.body);
+  const replacement = await replacementResponse.json();
+  const confirm = await post('/register/confirm', { challenge: replacement.challenge, code: f.sent.at(-1).code });
   assert.equal(confirm.status, 200);
   assert.equal(confirm.headers.get('set-cookie'), null);
   f.mailer.available = false;

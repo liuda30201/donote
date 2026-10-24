@@ -87,6 +87,7 @@ function createAuthRouter({ authService, version = APP_VERSION }) {
   sessionRouter.get('/auth/status', (req, res) => res.json({ mode: 'accounts', requirePassword: true, secondFactorSupported: true, registration: Boolean(authService.emailVerification?.registrationAvailable?.()) }));
   sessionRouter.post('/auth/register/start', endpoint(async (req, res) => { jsonRequest(req); res.json(await authService.emailVerification.startRegistration(req)); }));
   sessionRouter.post('/auth/register/confirm', endpoint((req, res) => { jsonRequest(req); res.json(authService.emailVerification.completeRegistration(req)); }));
+  sessionRouter.post('/auth/register/cancel', endpoint((req, res) => { jsonRequest(req); res.json(authService.emailVerification.cancelRegistration(req)); }));
   sessionRouter.get('/version', (req, res) => res.json({ version, mode: 'accounts' }));
   sessionRouter.post('/auth', (req, res) => res.status(410).json({ code: 'LEGACY_AUTH_DISABLED' }));
   sessionRouter.post('/auth/login', endpoint(async (req, res) => { jsonRequest(req); issue(await authService.login(req), res); }));
