@@ -1,6 +1,8 @@
-# Web Clipboard
+# DoNote
 
-私有跨设备剪贴板，用于在设备之间同步文本、截图、图片和文件。项目基于 [aiChenK/web-clipboard](https://github.com/aiChenK/web-clipboard) v1.6.8 演进，提供本地开发、传统密码访问和 accounts 多账户部署路径。
+DoNote 是一个可自托管的跨设备网页剪贴板，用于在设备之间同步文本、截图、图片和文件。项目基于 [aiChenK/web-clipboard](https://github.com/aiChenK/web-clipboard) v1.6.8 演进，提供本地开发、传统密码访问和 accounts 多账户部署路径。
+
+**示例站点：** [https://donote.cc](https://donote.cc)
 
 默认开发入口为 `http://127.0.0.1:3000`，面向 MacBook M1 与 OrbStack。开发环境只运行应用容器，不需要域名、SSL 证书或 Nginx，并将数据写入独立的 `.dev-data/`。生产环境通过 Nginx HTTPS 反向代理，持久化数据保存在 `data/`。
 

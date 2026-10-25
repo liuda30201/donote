@@ -1,7 +1,7 @@
 {
-  "name": "web-clipboard",
+  "name": "donote",
   "version": "1.0.0",
-  "description": "用于在设备之间传递文本、截图、图片和文件。基于 [aiChenK/web-clipboard](https://github.com/aiChenK/web-clipboard) v1.6.8，包含本地认证、文件访问、历史搜索和卡片布局补丁。",
+  "description": "DoNote：可自托管的跨设备网页剪贴板，支持文本、截图、图片和文件同步。",
   "main": "index.js",
   "directories": {
     "doc": "docs"
@@ -11,10 +11,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git@gitee.com:liuste_admin/web-clipboard.git"
+    "url": "https://github.com/liuda30201/donote.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["clipboard", "cross-device", "self-hosted", "privacy", "realtime", "socket.io", "docker", "https"],
+  "license": "MIT",
   "type": "commonjs"
 }
