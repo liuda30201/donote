@@ -233,13 +233,13 @@ Nginx 还通过 `/__auth` 内部子请求调用应用的 `/api/messages/auth-ver
 
 ## 10. 部署方式
 
-### 本机开发（MacBook M1 + OrbStack）
+### 本机开发（Docker Compose）
 
 日常开发测试不使用域名、SSL 或 Nginx。推荐运行 `docker-compose.dev.yml`，只启动 app 并将容器 `3000` 绑定到宿主机 `127.0.0.1`。开发数据使用 `.dev-data/`，与部署用的 `data/` 隔离。
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d --build
-open http://127.0.0.1:3000
+# 在浏览器中访问 http://127.0.0.1:3000
 docker compose -f docker-compose.dev.yml down
 ```
 
@@ -265,7 +265,7 @@ nginx
 ```bash
 # 本机开发：使用独立 .dev-data，不读取生产 data/
 docker compose -f docker-compose.dev.yml up -d --build
-open http://127.0.0.1:3000
+# 在浏览器中访问 http://127.0.0.1:3000
 
 # 生产/代理路径：需要域名、证书和 Nginx
 docker compose up -d --build

@@ -1596,7 +1596,7 @@ const PASTE_CORNER_APP_GRAPHICS = {
       </defs>
     </svg>
   `,
-  // 文件 (File)：还原截图第三排第 3 张的 macOS Finder 双色笑脸 (Finder Smiley) 拟物角标
+  // 文件 (File)：还原截图第三排第 3 张的文件管理器双色笑脸拟物角标
   file: `
     <svg viewBox="0 0 60 50" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <g filter="url(#pasteCornerShadowFile)">

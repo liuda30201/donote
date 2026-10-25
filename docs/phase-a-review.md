@@ -74,7 +74,7 @@ python3 app/test/verifier-review/restore_health_failure.py -v
 docker info --format '{{.ServerVersion}}'
 ```
 
-结果失败：Docker API `unix:///Users/liu/.orbstack/run/docker.sock` 不存在。因而本次无法验证：
+结果失败：配置的 Docker API 端点不可用。因而本次无法验证：
 
 - 目标应用镜像是否存在且可启动。
 - 目标镜像内 tar/gzip 对 rollback positional 参数的实际支持。

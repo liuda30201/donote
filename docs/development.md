@@ -24,9 +24,9 @@
 
 `share.js`、分享路由与分享页面来自上游；本地不注册分享 API，Nginx 阻止分享页面。后端仍使用分享模块清理旧数据，暂保留这些文件以兼容已有数据。
 
-Dockerfile 使用 Node.js 24，适配当前目标镜像和 Mac Apple Silicon/OrbStack 开发。无需安装 Docker 内原生依赖到宿主机；OrbStack 需处于运行状态。
+Dockerfile 使用 Node.js 24。无需在宿主机安装容器内的原生依赖；Docker Engine 需处于运行状态。
 
-### OrbStack 容器开发
+### Docker 容器开发
 
 在仓库根目录执行：
 
@@ -36,7 +36,7 @@ chmod 600 .env
 # 编辑 .env，设置开发专用 ACCESS_PASSWORD
 
 docker compose -f docker-compose.dev.yml up -d --build
-open http://127.0.0.1:3000
+# 在浏览器中访问 http://127.0.0.1:3000
 docker compose -f docker-compose.dev.yml ps
 docker compose -f docker-compose.dev.yml logs -f app
 ```
@@ -51,7 +51,7 @@ docker compose -f docker-compose.dev.yml down
 
 ### 宿主机 Node 开发
 
-也可不使用容器，直接在 macOS 安装匹配的 Node.js：
+也可不使用容器，直接在宿主机安装 Node.js 24：
 
 ```bash
 npm ci --prefix app
@@ -74,7 +74,7 @@ npm --prefix app test       # 需要先 npm ci --prefix app
 
 接口测试启动随机端口，并创建和删除系统临时数据目录。覆盖登录、消息创建与搜索、备注、收藏、清空、上传、Cookie 下载、Range、预览限制、禁用接口、删除和多用户文件隔离，不读取 `.env` 或 `data/`。
 
-宿主机没有 Node.js 时，可复用 OrbStack 中已构建的开发镜像中的 Node 和依赖：
+宿主机没有 Node.js 时，可复用已构建的开发镜像中的 Node 和依赖：
 
 ```bash
 docker run --rm --network none --user "$(id -u):$(id -g)" \

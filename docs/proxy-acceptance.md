@@ -4,7 +4,7 @@
 
 PASS: cached `nginx:1.27-alpine` ran against a host Node 24 synthetic accounts application. This is evidence for the repository Nginx proxy configuration, not for the final app Docker image or deployment. The app image remains unverified because earlier image builds failed fetching the Node base manifest from Docker Hub.
 
-The default OrbStack socket was missing. A read-only check found the Docker Engine reachable through `unix:///var/run/docker.sock`; the successful isolated run selected that endpoint explicitly without changing Docker context, starting the daemon, or touching existing containers.
+The configured Docker endpoint was reachable. The successful isolated run used it without changing Docker context, starting the daemon, or touching existing containers.
 
 ## Reproduce
 
@@ -13,7 +13,7 @@ The default OrbStack socket was missing. A read-only check found the Docker Engi
 python3 app/test/verifier-review/proxy-acceptance.py
 
 # Real proxy run: requires an already cached nginx:1.27-alpine.
-python3 app/test/verifier-review/proxy-acceptance.py --execute --docker-host unix:///var/run/docker.sock
+python3 app/test/verifier-review/proxy-acceptance.py --execute
 ```
 
 The fixture never pulls or builds an image. It copies all repository `nginx/conf.d/*.conf` and `nginx/security-headers.inc` to a temporary directory and changes only `http://app:3000` upstream URLs to `host.docker.internal:<random-port>`. Hostname, route matching, security headers, auth subrequests, TLS settings, certificate paths, and Socket.IO proxy settings are preserved. Temporary certificates use the existing expected filenames. The published TLS port is random and bound only to `127.0.0.1`.

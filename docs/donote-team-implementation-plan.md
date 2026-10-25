@@ -1,7 +1,7 @@
 # DoNote 智能体团队模块化实施与试行计划
 
 > 更新日期：2026-10-17（Asia/Shanghai）
-> 状态：账户安全、设备设置、管理员、迁移、敏感文本加密、配额和备份恢复已接入产品；最终应用回归 116/116、静态检查、备份恢复 28 项及真实 Chrome 敏感生命周期与双标签页撤销均通过；Node 24 OrbStack 目标镜像验收通过。目标镜像验收不等于生产部署或真实用户数据迁移。详见[最终验证记录](final-release-validation.md)、[容器验收记录](container-acceptance.md)和[配额接线说明](donote-quota-integration.md)。
+> 状态：账户安全、设备设置、管理员、迁移、敏感文本加密、配额和备份恢复已接入产品；最终应用回归 116/116、静态检查、备份恢复 28 项及真实 Chrome 敏感生命周期与双标签页撤销均通过；Node 24 目标镜像验收通过。目标镜像验收不等于生产部署或真实用户数据迁移。详见[最终验证记录](final-release-validation.md)、[容器验收记录](container-acceptance.md)和[配额接线说明](donote-quota-integration.md)。
 > 设计依据：[多用户与数据保护设计](donote-multiuser-data-protection.md)。
 > 本次范围：提供分工、任务依赖、接口约定、试行步骤和验收门槛；不自动创建团队或部署。
 

@@ -10,10 +10,10 @@ Run the dry-run plan with:
 python3 app/test/verifier-review/container-acceptance.py
 ```
 
-Execute isolated image acceptance when the Docker registry is reachable (this development environment's OrbStack registry proxy is configured):
+Execute isolated image acceptance when the Docker registry is reachable:
 
 ```sh
-python3 app/test/verifier-review/container-acceptance.py --execute --docker-host unix:///Users/liu/.orbstack/run/docker.sock
+python3 app/test/verifier-review/container-acceptance.py --execute
 ```
 
 The execute path builds only `app/` with a unique temporary tag, starts one isolated app container, waits for `/api/version`, verifies native `better-sqlite3` and `argon2` from inside the image, checks unauthenticated `/api/auth/me` and `Cache-Control: no-store`, sends SIGTERM, waits for exit, and verifies the temporary database was created. It never claims migration CLI availability in the image.
@@ -34,8 +34,8 @@ The final host-only run passed with zero browser runtime exceptions: login form,
 
 ## Acceptance status
 
-**PASS (2026-10-17):** The isolated fixture ran against the existing OrbStack daemon at `unix:///Users/liu/.orbstack/run/docker.sock`, with the exact `node:24-bookworm-slim` base and no Compose project. It confirmed `/api/version` readiness on a loopback-only random port, Node 24, native `better-sqlite3`, native `argon2`, unauthenticated `401` plus `Cache-Control: no-store`, zero-exit SIGTERM shutdown, and creation of the temporary mounted SQLite database. The fixture verified ownership labels before removing its unique image/container; a post-run label query was empty.
+**PASS (2026-10-17):** The isolated fixture ran against an existing Docker daemon with the exact `node:24-bookworm-slim` base and no Compose project. It confirmed `/api/version` readiness on a loopback-only random port, Node 24, native `better-sqlite3`, native `argon2`, unauthenticated `401` plus `Cache-Control: no-store`, zero-exit SIGTERM shutdown, and creation of the temporary mounted SQLite database. The fixture verified ownership labels before removing its unique image/container; a post-run label query was empty.
 
-The first executable build found a real image issue: the slim base did not contain the build tools required when `better-sqlite3` needed compilation. [Dockerfile](../app/Dockerfile) now installs `python3`, `make`, and `g++` for `npm ci --omit=dev` only, then purges them and package/npm cache. Another fixture issue was corrected: global proxy settings caused Python to proxy `127.0.0.1` readiness traffic, returning 502 even though the container logged successful startup. The fixture now disables proxies for loopback verification. The exact base was pulled only after the existing OrbStack proxy endpoint was aligned with the active global proxy. No Node version/tag was substituted.
+The first executable build found a real image issue: the slim base did not contain the build tools required when `better-sqlite3` needed compilation. [Dockerfile](../app/Dockerfile) now installs `python3`, `make`, and `g++` for `npm ci --omit=dev` only, then purges them and package/npm cache. Another fixture issue was corrected: global proxy settings caused Python to proxy `127.0.0.1` readiness traffic, returning 502 even though the container logged successful startup. The fixture now disables proxies for loopback verification. The exact base was used without substituting another Node version or tag.
 
 A separate host-only synthetic browser fixture, `app/test/verifier-review/container-acceptance.browser.cjs`, uses a temporary data/key directory, offline synthetic admin initialization, a dedicated temporary Chrome profile, a loopback app port, and Chrome DevTools Protocol through Node's built-in WebSocket. Its results are explicitly browser evidence for the host runtime only, not image/runtime evidence. Do not use a normal Chrome profile or real user data.

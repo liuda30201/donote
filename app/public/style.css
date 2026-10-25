@@ -11,7 +11,7 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* 字体栈：优先 macOS 中西文，兼顾 Windows 与 Linux */
+  /* 字体栈：优先系统中西文，兼顾常见平台 */
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
@@ -106,7 +106,7 @@
   --card-scale: 1;
 }
 
-/* 深色模式：Apple macOS Dark Mode 深空灰黑画布 + 品牌暖橙绯红微光氛围，衬托苹果高饱和度五色卡片顶栏 */
+/* 深色模式：深空灰黑画布与品牌暖橙绯红微光氛围，衬托高饱和度五色卡片顶栏 */
 :root[data-theme="dark"] {
   --bg-app: #111114;
   --bg-app-gradient: radial-gradient(1050px 520px at 16% -10%, rgba(255, 122, 26, 0.11), transparent 65%),
@@ -774,7 +774,7 @@ a:focus-visible,
 }
 
 /* ==========================================================================
-   macOS 工具栏风格顶栏 (Top Bar)
+   工具栏风格顶栏 (Top Bar)
    ========================================================================== */
 
 .app-topbar {

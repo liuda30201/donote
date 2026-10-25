@@ -150,7 +150,7 @@ async function lstat(fsApi, target) {
 }
 
 // Parent directories belong to the operator and may themselves be symlinks
-// (for example macOS /tmp). Validate the explicit root/leaf and every child
+// Validate the explicit root/leaf and every child
 // encountered during the recursive scan; do not reject trusted parents.
 async function inspectPathComponents(target, fsApi) {
   const result = await lstat(fsApi, path.resolve(target));

@@ -4,7 +4,7 @@ DoNote 是一个可自托管的跨设备网页剪贴板，用于在设备之间�
 
 **示例站点：** [https://donote.cc](https://donote.cc)
 
-默认开发入口为 `http://127.0.0.1:3000`，面向 MacBook M1 与 OrbStack。开发环境只运行应用容器，不需要域名、SSL 证书或 Nginx，并将数据写入独立的 `.dev-data/`。生产环境通过 Nginx HTTPS 反向代理，持久化数据保存在 `data/`。
+默认开发入口为 `http://127.0.0.1:3000`。开发环境只运行应用容器，不需要域名、SSL 证书或 Nginx，并将数据写入独立的 `.dev-data/`。生产环境通过 Nginx HTTPS 反向代理，持久化数据保存在 `data/`。
 
 ## 功能
 
@@ -58,7 +58,7 @@ web-clipboard/
 
 ## 本机开发
 
-前提是 OrbStack 的 Docker 引擎正在运行。在仓库根目录执行：
+确保 Docker Engine 和 Docker Compose 可用后，在仓库根目录执行：
 
 ```bash
 cp .env.example .env
@@ -67,7 +67,7 @@ chmod 600 .env
 # 可选：设置 DEV_PORT=3001 避开已有服务
 
 docker compose -f docker-compose.dev.yml up -d --build
-open http://127.0.0.1:3000
+# 在浏览器中访问 http://127.0.0.1:3000
 docker compose -f docker-compose.dev.yml logs -f app
 ```
 

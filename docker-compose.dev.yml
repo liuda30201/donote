@@ -1,4 +1,4 @@
-# Local development profile for macOS + OrbStack.
+# Local development profile.
 # No domain, TLS certificate, Nginx, or host-network exposure is required.
 services:
   app:
